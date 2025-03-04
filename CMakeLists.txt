@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 cmake_minimum_required(VERSION 3.13...3.27)
-project(pico_fmt C)
+project(pico_fmt C CXX)
 
 set(PICO_SDK_TESTS_ENABLED 1)
 

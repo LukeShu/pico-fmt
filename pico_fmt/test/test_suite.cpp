@@ -1,3 +1,12 @@
+// Copyright (c) 2017-2019  Marco Paland (info@paland.com)
+// SPDX-License-Identifier: MIT
+//
+// Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Copyright (c) 2025  Luke T. Shumaker
+// SPDX-License-Identifier: BSD-3-Clause
+//
 ///////////////////////////////////////////////////////////////////////////////
 // \author (c) Marco Paland (info@paland.com)
 //             2017-2019, PALANDesign Hannover, Germany
@@ -10,10 +19,10 @@
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -37,8 +46,38 @@
 
 namespace test {
   // use functions in own test namespace to avoid stdio conflicts
-  #include "../printf.h"
-  #include "../printf.c"
+  #include "pico/fmt_printf.h"
+
+  // output: stdout
+  void _putchar(char character);
+  inline void _out_char(char character, void *arg)
+  {
+    (void) arg;
+    _putchar(character);
+  }
+  int vprintf(const char* format, va_list va)
+  {
+    return fmt_vfctprintf(_out_char, nullptr, format, va);
+  }
+  int printf(const char* format, ...)
+  {
+    va_list va;
+    va_start(va, format);
+    int ret = fmt_vfctprintf(_out_char, nullptr, format, va);
+    va_end(va);
+    return ret;
+  }
+
+  // output: [F]un[CT]ion
+  #define vfctprintf fmt_vfctprintf
+  #define fctprintf  fmt_fctprintf
+
+  // output: [S]tring
+  #define vsnprintf  fmt_vsnprintf
+  #define snprintf   fmt_snprintf
+  #define vsprintf   fmt_vsprintf
+  #define sprintf    fmt_sprintf
+
 } // namespace test
 
 
@@ -158,11 +197,13 @@ TEST_CASE("space flag", "[]" ) {
   test::sprintf(buffer, "% 15d", -42);
   REQUIRE(!strcmp(buffer, "            -42"));
 
+#if PICO_PRINTF_SUPPORT_FLOAT
   test::sprintf(buffer, "% 15.3f", -42.987);
   REQUIRE(!strcmp(buffer, "        -42.987"));
 
   test::sprintf(buffer, "% 15.3f", 42.987);
   REQUIRE(!strcmp(buffer, "         42.987"));
+#endif
 
   test::sprintf(buffer, "% s", "Hello testing");
   REQUIRE(!strcmp(buffer, "Hello testing"));
@@ -300,6 +341,7 @@ TEST_CASE("0 flag", "[]" ) {
   test::sprintf(buffer, "%015d", -42);
   REQUIRE(!strcmp(buffer, "-00000000000042"));
 
+#if PICO_PRINTF_SUPPORT_FLOAT
   test::sprintf(buffer, "%015.2f", 42.1234);
   REQUIRE(!strcmp(buffer, "000000000042.12"));
 
@@ -308,6 +350,7 @@ TEST_CASE("0 flag", "[]" ) {
 
   test::sprintf(buffer, "%015.5f", -42.9876);
   REQUIRE(!strcmp(buffer, "-00000042.98760"));
+#endif
 }
 
 
@@ -369,17 +412,17 @@ TEST_CASE("- flag", "[]" ) {
   REQUIRE(!strcmp(buffer, "-42            "));
 
   test::sprintf(buffer, "%0-15.3e", -42.);
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
   REQUIRE(!strcmp(buffer, "-4.200e+01     "));
 #else
-  REQUIRE(!strcmp(buffer, "e"));
+  REQUIRE(!strcmp(buffer, "??"));
 #endif
 
   test::sprintf(buffer, "%0-15.3g", -42.);
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
   REQUIRE(!strcmp(buffer, "-42.0          "));
 #else
-  REQUIRE(!strcmp(buffer, "g"));
+  REQUIRE(!strcmp(buffer, "??"));
 #endif
 }
 
@@ -612,8 +655,10 @@ TEST_CASE("width -20", "[]" ) {
   test::sprintf(buffer, "%-20u", 1024);
   REQUIRE(!strcmp(buffer, "1024                "));
 
+#if PICO_PRINTF_SUPPORT_FLOAT
   test::sprintf(buffer, "%-20.4f", 1024.1234);
   REQUIRE(!strcmp(buffer, "1024.1234           "));
+#endif
 
   test::sprintf(buffer, "%-20u", 4294966272U);
   REQUIRE(!strcmp(buffer, "4294966272          "));
@@ -936,6 +981,7 @@ TEST_CASE("padding neg numbers", "[]" ) {
 }
 
 
+#if PICO_PRINTF_SUPPORT_FLOAT
 TEST_CASE("float padding neg numbers", "[]" ) {
   char buffer[100];
 
@@ -949,7 +995,7 @@ TEST_CASE("float padding neg numbers", "[]" ) {
   test::sprintf(buffer, "% 5.1f", -5.);
   REQUIRE(!strcmp(buffer, " -5.0"));
 
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
   test::sprintf(buffer, "% 6.1g", -5.);
   REQUIRE(!strcmp(buffer, "    -5"));
 
@@ -980,7 +1026,7 @@ TEST_CASE("float padding neg numbers", "[]" ) {
   test::sprintf(buffer, "%03.0f", -5.);
   REQUIRE(!strcmp(buffer, "-05"));
 
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
   test::sprintf(buffer, "%010.1e", -5.);
   REQUIRE(!strcmp(buffer, "-005.0e+00"));
 
@@ -991,6 +1037,7 @@ TEST_CASE("float padding neg numbers", "[]" ) {
   REQUIRE(!strcmp(buffer, "-05"));
 #endif
 }
+#endif
 
 TEST_CASE("length", "[]" ) {
   char buffer[100];
@@ -1075,6 +1122,7 @@ TEST_CASE("length", "[]" ) {
 }
 
 
+#if PICO_PRINTF_SUPPORT_FLOAT
 TEST_CASE("float", "[]" ) {
   char buffer[100];
 
@@ -1088,7 +1136,7 @@ TEST_CASE("float", "[]" ) {
   test::sprintf(buffer, "%-8f", -INFINITY);
   REQUIRE(!strcmp(buffer, "-inf    "));
 
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
   test::sprintf(buffer, "%+8e", INFINITY);
   REQUIRE(!strcmp(buffer, "    +inf"));
 #endif
@@ -1172,7 +1220,7 @@ TEST_CASE("float", "[]" ) {
   test::sprintf(buffer, "a%-5.1fend", 0.5);
   REQUIRE(!strcmp(buffer, "a0.5  end"));
 
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
   test::sprintf(buffer, "%G", 12345.678);
   REQUIRE(!strcmp(buffer, "12345.7"));
 
@@ -1206,7 +1254,7 @@ TEST_CASE("float", "[]" ) {
 
   // out of range for float: should switch to exp notation if supported, else empty
   test::sprintf(buffer, "%.1f", 1E20);
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
   REQUIRE(!strcmp(buffer, "1.0e+20"));
 #else
   REQUIRE(!strcmp(buffer, ""));
@@ -1225,7 +1273,7 @@ TEST_CASE("float", "[]" ) {
   REQUIRE(!fail);
 
 
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
   // brute force exp
   str.setf(std::ios::scientific, std::ios::floatfield);
   for (float i = -1e20; i < 1e20; i += 1e15) {
@@ -1237,6 +1285,7 @@ TEST_CASE("float", "[]" ) {
   REQUIRE(!fail);
 #endif
 }
+#endif
 
 
 TEST_CASE("types", "[]" ) {
@@ -1263,6 +1312,7 @@ TEST_CASE("types", "[]" ) {
   test::sprintf(buffer, "%li", 2147483647L);
   REQUIRE(!strcmp(buffer, "2147483647"));
 
+#if PICO_PRINTF_SUPPORT_LONG_LONG
   test::sprintf(buffer, "%lli", 30LL);
   REQUIRE(!strcmp(buffer, "30"));
 
@@ -1271,6 +1321,7 @@ TEST_CASE("types", "[]" ) {
 
   test::sprintf(buffer, "%lli", 9223372036854775807LL);
   REQUIRE(!strcmp(buffer, "9223372036854775807"));
+#endif
 
   test::sprintf(buffer, "%lu", 100000L);
   REQUIRE(!strcmp(buffer, "100000"));
@@ -1278,11 +1329,13 @@ TEST_CASE("types", "[]" ) {
   test::sprintf(buffer, "%lu", 0xFFFFFFFFL);
   REQUIRE(!strcmp(buffer, "4294967295"));
 
+#if PICO_PRINTF_SUPPORT_LONG_LONG
   test::sprintf(buffer, "%llu", 281474976710656LLU);
   REQUIRE(!strcmp(buffer, "281474976710656"));
 
   test::sprintf(buffer, "%llu", 18446744073709551615LLU);
   REQUIRE(!strcmp(buffer, "18446744073709551615"));
+#endif
 
   test::sprintf(buffer, "%zu", 2147483647UL);
   REQUIRE(!strcmp(buffer, "2147483647"));
@@ -1314,8 +1367,10 @@ TEST_CASE("types", "[]" ) {
   test::sprintf(buffer, "%lx", 0x12345678L);
   REQUIRE(!strcmp(buffer, "12345678"));
 
+#if PICO_PRINTF_SUPPORT_LONG_LONG
   test::sprintf(buffer, "%llx", 0x1234567891234567LLU);
   REQUIRE(!strcmp(buffer, "1234567891234567"));
+#endif
 
   test::sprintf(buffer, "%lx", 0xabcdefabL);
   REQUIRE(!strcmp(buffer, "abcdefab"));
@@ -1342,7 +1397,11 @@ TEST_CASE("types", "[]" ) {
   REQUIRE(!strcmp(buffer, "Test16 65535"));
 
   test::sprintf(buffer, "%tx", &buffer[10] - &buffer[0]);
+#if PICO_PRINTF_SUPPORT_PTRDIFF_T
   REQUIRE(!strcmp(buffer, "a"));
+#else
+  REQUIRE(!strcmp(buffer, "tx"));
+#endif
 
 // TBD
   if (sizeof(intmax_t) == sizeof(long)) {
@@ -1485,8 +1544,10 @@ TEST_CASE("misc", "[]" ) {
   test::sprintf(buffer, "%u%u%ctest%d %s", 5, 3000, 'a', -20, "bit");
   REQUIRE(!strcmp(buffer, "53000atest-20 bit"));
 
+#if PICO_PRINTF_SUPPORT_FLOAT
   test::sprintf(buffer, "%.*f", 2, 0.33333333);
   REQUIRE(!strcmp(buffer, "0.33"));
+#endif
 
   test::sprintf(buffer, "%.*d", -1, 1);
   REQUIRE(!strcmp(buffer, "1"));
@@ -1503,7 +1564,7 @@ TEST_CASE("misc", "[]" ) {
   test::sprintf(buffer, "%*sx", -3, "hi");
   REQUIRE(!strcmp(buffer, "hi x"));
 
-#ifndef PRINTF_DISABLE_SUPPORT_EXPONENTIAL
+#if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
   test::sprintf(buffer, "%.*g", 2, 0.33333333);
   REQUIRE(!strcmp(buffer, "0.33"));
 
