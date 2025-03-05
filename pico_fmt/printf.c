@@ -115,38 +115,31 @@
 
 #endif
 
-// output function type
-typedef void (*out_fct_type)(char character, void *buffer, size_t idx, size_t maxlen);
-
-// wrapper (used as buffer) for output function type
-typedef struct {
+struct fmt_ctx {
     fmt_fct_t fct;
     void *arg;
-} out_fct_wrap_type;
+    size_t idx;
+};
 
-// internal buffer output
-static inline void _out_buffer(char character, void *buffer, size_t idx, size_t maxlen) {
-    if (idx < maxlen) {
-        ((char *) buffer)[idx] = character;
+struct fmt_state {
+    // %[flags][width][.precision][size]specifier
+    unsigned int flags; // size is stored as flags
+    unsigned int width;
+    unsigned int precision;
+    char specifier;
+
+    struct fmt_ctx *ctx;
+};
+
+static inline void fmt_state_putchar(struct fmt_state *state, char character) {
+    if (state->ctx->fct) {
+        state->ctx->fct(character, state->ctx->arg);
     }
+    state->ctx->idx++;
 }
 
-// internal null output
-static inline void _out_null(char character, void *buffer, size_t idx, size_t maxlen) {
-    (void) character;
-    (void) buffer;
-    (void) idx;
-    (void) maxlen;
-}
-
-// internal output function wrapper
-static inline void _out_fct(char character, void *buffer, size_t idx, size_t maxlen) {
-    (void) idx;
-    (void) maxlen;
-    if (character) {
-        // buffer is the output fct pointer
-        ((out_fct_wrap_type *) buffer)->fct(character, ((out_fct_wrap_type *) buffer)->arg);
-    }
+static inline size_t fmt_state_len(struct fmt_state *state) {
+    return state->ctx->idx;
 }
 
 // internal secure strlen
@@ -174,60 +167,55 @@ static unsigned int _atoi(const char **str) {
 }
 
 // output the specified string in reverse, taking care of any zero-padding
-static size_t _out_rev(out_fct_type out, char *buffer, size_t idx, size_t maxlen, const char *buf, size_t len,
-                       unsigned int width, unsigned int flags) {
-    const size_t start_idx = idx;
+static void _out_rev(struct fmt_state *state, const char *buf, size_t len) {
+    const size_t start_idx = fmt_state_len(state);
 
     // pad spaces up to given width
-    if (!(flags & FLAGS_LEFT) && !(flags & FLAGS_ZEROPAD)) {
-        for (size_t i = len; i < width; i++) {
-            out(' ', buffer, idx++, maxlen);
+    if (!(state->flags & FLAGS_LEFT) && !(state->flags & FLAGS_ZEROPAD)) {
+        for (size_t i = len; i < state->width; i++) {
+            fmt_state_putchar(state, ' ');
         }
     }
 
     // reverse string
     while (len) {
-        out(buf[--len], buffer, idx++, maxlen);
+        fmt_state_putchar(state, buf[--len]);
     }
 
     // append pad spaces up to given width
-    if (flags & FLAGS_LEFT) {
-        while (idx - start_idx < width) {
-            out(' ', buffer, idx++, maxlen);
+    if (state->flags & FLAGS_LEFT) {
+        while (fmt_state_len(state) - start_idx < state->width) {
+            fmt_state_putchar(state, ' ');
         }
     }
-
-    return idx;
 }
 
 // internal itoa format
-static size_t _ntoa_format(out_fct_type out, char *buffer, size_t idx, size_t maxlen, char *buf, size_t len,
-                           bool negative, unsigned int base, unsigned int prec, unsigned int width,
-                           unsigned int flags) {
+static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool negative, unsigned int base) {
     // pad leading zeros
-    if (!(flags & FLAGS_LEFT)) {
-        if (width && (flags & FLAGS_ZEROPAD) && (negative || (flags & (FLAGS_PLUS | FLAGS_SPACE)))) {
-            width--;
+    if (!(state->flags & FLAGS_LEFT)) {
+        if (state->width && (state->flags & FLAGS_ZEROPAD) && (negative || (state->flags & (FLAGS_PLUS | FLAGS_SPACE)))) {
+            state->width--;
         }
-        while ((len < prec) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        while ((len < state->precision) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
             buf[len++] = '0';
         }
-        while ((flags & FLAGS_ZEROPAD) && (len < width) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        while ((state->flags & FLAGS_ZEROPAD) && (len < state->width) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
             buf[len++] = '0';
         }
     }
 
     // handle hash
-    if (flags & FLAGS_HASH) {
-        if (!(flags & FLAGS_PRECISION) && len && ((len == prec) || (len == width))) {
+    if (state->flags & FLAGS_HASH) {
+        if (!(state->flags & FLAGS_PRECISION) && len && ((len == state->precision) || (len == state->width))) {
             len--;
             if (len && (base == 16U)) {
                 len--;
             }
         }
-        if ((base == 16U) && !(flags & FLAGS_UPPERCASE) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        if ((base == 16U) && !(state->flags & FLAGS_UPPERCASE) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
             buf[len++] = 'x';
-        } else if ((base == 16U) && (flags & FLAGS_UPPERCASE) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        } else if ((base == 16U) && (state->flags & FLAGS_UPPERCASE) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
             buf[len++] = 'X';
         } else if ((base == 2U) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
             buf[len++] = 'b';
@@ -240,63 +228,60 @@ static size_t _ntoa_format(out_fct_type out, char *buffer, size_t idx, size_t ma
     if (len < PICO_PRINTF_NTOA_BUFFER_SIZE) {
         if (negative) {
             buf[len++] = '-';
-        } else if (flags & FLAGS_PLUS) {
+        } else if (state->flags & FLAGS_PLUS) {
             buf[len++] = '+'; // ignore the space if the '+' exists
-        } else if (flags & FLAGS_SPACE) {
+        } else if (state->flags & FLAGS_SPACE) {
             buf[len++] = ' ';
         }
     }
 
-    return _out_rev(out, buffer, idx, maxlen, buf, len, width, flags);
+    _out_rev(state, buf, len);
 }
 
 // internal itoa for 'long' type
-static size_t _ntoa_long(out_fct_type out, char *buffer, size_t idx, size_t maxlen, unsigned long value, bool negative,
-                         unsigned long base, unsigned int prec, unsigned int width, unsigned int flags) {
+static void _ntoa_long(struct fmt_state *state, unsigned long value, bool negative, unsigned long base) {
     char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];
     size_t len = 0U;
 
     // no hash for 0 values
     if (!value) {
-        flags &= ~FLAGS_HASH;
+        state->flags &= ~FLAGS_HASH;
     }
 
     // write if precision != 0 and value is != 0
-    if (!(flags & FLAGS_PRECISION) || value) {
+    if (!(state->flags & FLAGS_PRECISION) || value) {
         do {
             const char digit = (char) (value % base);
-            buf[len++] = (char) (digit < 10 ? '0' + digit : (flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10);
+            buf[len++] = (char) (digit < 10 ? '0' + digit : (state->flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10);
             value /= base;
         } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));
     }
 
-    return _ntoa_format(out, buffer, idx, maxlen, buf, len, negative, (unsigned int) base, prec, width, flags);
+    _ntoa_format(state, buf, len, negative, (unsigned int) base);
 }
 
 // internal itoa for 'long long' type
 #if PICO_PRINTF_SUPPORT_LONG_LONG
 
-static size_t _ntoa_long_long(out_fct_type out, char *buffer, size_t idx, size_t maxlen, unsigned long long value,
-                              bool negative, unsigned long long base, unsigned int prec, unsigned int width,
-                              unsigned int flags) {
+static void _ntoa_long_long(struct fmt_state *state, unsigned long long value, bool negative, unsigned long long base) {
     char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];
     size_t len = 0U;
 
     // no hash for 0 values
     if (!value) {
-        flags &= ~FLAGS_HASH;
+        state->flags &= ~FLAGS_HASH;
     }
 
     // write if precision != 0 and value is != 0
-    if (!(flags & FLAGS_PRECISION) || value) {
+    if (!(state->flags & FLAGS_PRECISION) || value) {
         do {
             const char digit = (char) (value % base);
-            buf[len++] = (char) (digit < 10 ? '0' + digit : (flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10);
+            buf[len++] = (char) (digit < 10 ? '0' + digit : (state->flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10);
             value /= base;
         } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));
     }
 
-    return _ntoa_format(out, buffer, idx, maxlen, buf, len, negative, (unsigned int) base, prec, width, flags);
+    _ntoa_format(state, buf, len, negative, (unsigned int) base);
 }
 
 #endif // PICO_PRINTF_SUPPORT_LONG_LONG
@@ -305,15 +290,13 @@ static size_t _ntoa_long_long(out_fct_type out, char *buffer, size_t idx, size_t
 
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
 // forward declaration so that _ftoa can switch to exp notation for values > PICO_PRINTF_MAX_FLOAT
-static size_t _etoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, double value, unsigned int prec,
-                    unsigned int width, unsigned int flags);
+static void _etoa(struct fmt_state *state, double value);
 #endif
 
 #define is_nan __builtin_isnan
 
 // internal ftoa for fixed decimal floating point
-static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, double value, unsigned int prec,
-                    unsigned int width, unsigned int flags) {
+static void _ftoa(struct fmt_state *state, double value) {
     char buf[PICO_PRINTF_FTOA_BUFFER_SIZE];
     size_t len = 0U;
     double diff = 0.0;
@@ -322,22 +305,26 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     static const double pow10[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
 
     // test for special values
-    if (is_nan(value))
-        return _out_rev(out, buffer, idx, maxlen, "nan", 3, width, flags);
-    if (value < -DBL_MAX)
-        return _out_rev(out, buffer, idx, maxlen, "fni-", 4, width, flags);
-    if (value > DBL_MAX)
-        return _out_rev(out, buffer, idx, maxlen, (flags & FLAGS_PLUS) ? "fni+" : "fni", (flags & FLAGS_PLUS) ? 4U : 3U,
-                        width, flags);
+    if (is_nan(value)) {
+        _out_rev(state, "nan", 3);
+        return;
+    }
+    if (value < -DBL_MAX) {
+        _out_rev(state, "fni-", 4);
+        return;
+    }
+    if (value > DBL_MAX) {
+        _out_rev(state, (state->flags & FLAGS_PLUS) ? "fni+" : "fni", (state->flags & FLAGS_PLUS) ? 4U : 3U);
+        return;
+    }
 
     // test for very large values
     // standard printf behavior is to print EVERY whole number digit -- which could be 100s of characters overflowing your buffers == bad
     if ((value > PICO_PRINTF_MAX_FLOAT) || (value < -PICO_PRINTF_MAX_FLOAT)) {
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
-        return _etoa(out, buffer, idx, maxlen, value, prec, width, flags);
-#else
-        return 0U;
+        _etoa(state, value);
 #endif
+        return;
     }
 
     // test for negative
@@ -348,24 +335,24 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     }
 
     // set default precision, if not set explicitly
-    if (!(flags & FLAGS_PRECISION)) {
-        prec = PICO_PRINTF_DEFAULT_FLOAT_PRECISION;
+    if (!(state->flags & FLAGS_PRECISION)) {
+        state->precision = PICO_PRINTF_DEFAULT_FLOAT_PRECISION;
     }
-    // limit precision to 9, cause a prec >= 10 can lead to overflow errors
-    while ((len < PICO_PRINTF_FTOA_BUFFER_SIZE) && (prec > 9U)) {
+    // limit precision to 9, cause a precision >= 10 can lead to overflow errors
+    while ((len < PICO_PRINTF_FTOA_BUFFER_SIZE) && (state->precision > 9U)) {
         buf[len++] = '0';
-        prec--;
+        state->precision--;
     }
 
     int whole = (int) value;
-    double tmp = (value - whole) * pow10[prec];
+    double tmp = (value - whole) * pow10[state->precision];
     unsigned long frac = (unsigned long) tmp;
     diff = tmp - frac;
 
     if (diff > 0.5) {
         ++frac;
-        // handle rollover, e.g. case 0.99 with prec 1 is 1.0
-        if (frac >= pow10[prec]) {
+        // handle rollover, e.g. case 0.99 with precision 1 is 1.0
+        if (frac >= pow10[state->precision]) {
             frac = 0;
             ++whole;
         }
@@ -375,7 +362,7 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
         ++frac;
     }
 
-    if (prec == 0U) {
+    if (state->precision == 0U) {
         diff = value - (double) whole;
         if (!((diff < 0.5) || (diff > 0.5)) && (whole & 1)) {
             // exactly 0.5 and ODD, then round up
@@ -383,7 +370,7 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
             ++whole;
         }
     } else {
-        unsigned int count = prec;
+        unsigned int count = state->precision;
         // now do fractional part, as an unsigned number
         while (len < PICO_PRINTF_FTOA_BUFFER_SIZE) {
             --count;
@@ -411,11 +398,11 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     }
 
     // pad leading zeros
-    if (!(flags & FLAGS_LEFT) && (flags & FLAGS_ZEROPAD)) {
-        if (width && (negative || (flags & (FLAGS_PLUS | FLAGS_SPACE)))) {
-            width--;
+    if (!(state->flags & FLAGS_LEFT) && (state->flags & FLAGS_ZEROPAD)) {
+        if (state->width && (negative || (state->flags & (FLAGS_PLUS | FLAGS_SPACE)))) {
+            state->width--;
         }
-        while ((len < width) && (len < PICO_PRINTF_FTOA_BUFFER_SIZE)) {
+        while ((len < state->width) && (len < PICO_PRINTF_FTOA_BUFFER_SIZE)) {
             buf[len++] = '0';
         }
     }
@@ -423,24 +410,24 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     if (len < PICO_PRINTF_FTOA_BUFFER_SIZE) {
         if (negative) {
             buf[len++] = '-';
-        } else if (flags & FLAGS_PLUS) {
+        } else if (state->flags & FLAGS_PLUS) {
             buf[len++] = '+'; // ignore the space if the '+' exists
-        } else if (flags & FLAGS_SPACE) {
+        } else if (state->flags & FLAGS_SPACE) {
             buf[len++] = ' ';
         }
     }
 
-    return _out_rev(out, buffer, idx, maxlen, buf, len, width, flags);
+    _out_rev(state, buf, len);
 }
 
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
 
 // internal ftoa variant for exponential floating-point type, contributed by Martijn Jasperse <m.jasperse@gmail.com>
-static size_t _etoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, double value, unsigned int prec,
-                    unsigned int width, unsigned int flags) {
+static void _etoa(struct fmt_state *state, double value) {
     // check for NaN and special values
     if (is_nan(value) || (value > DBL_MAX) || (value < -DBL_MAX)) {
-        return _ftoa(out, buffer, idx, maxlen, value, prec, width, flags);
+        _ftoa(state, value);
+        return;
     }
 
     // determine the sign
@@ -450,8 +437,8 @@ static size_t _etoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     }
 
     // default precision
-    if (!(flags & FLAGS_PRECISION)) {
-        prec = PICO_PRINTF_DEFAULT_FLOAT_PRECISION;
+    if (!(state->flags & FLAGS_PRECISION)) {
+        state->precision = PICO_PRINTF_DEFAULT_FLOAT_PRECISION;
     }
 
     // determine the decimal exponent
@@ -487,37 +474,37 @@ static size_t _etoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     // the exponent format is "%+03d" and largest value is "307", so set aside 4-5 characters
     unsigned int minwidth = ((expval < 100) && (expval > -100)) ? 4U : 5U;
 
-    // in "%g" mode, "prec" is the number of *significant figures* not decimals
-    if (flags & FLAGS_ADAPT_EXP) {
+    // in "%g" mode, "precision" is the number of *significant figures* not decimals
+    if (state->flags & FLAGS_ADAPT_EXP) {
         // do we want to fall-back to "%f" mode?
         if ((conv.U == 0) || ((value >= 1e-4) && (value < 1e6))) {
-            if ((int) prec > expval) {
-                prec = (unsigned) ((int) prec - expval - 1);
+            if ((int) state->precision > expval) {
+                state->precision = (unsigned) ((int) state->precision - expval - 1);
             } else {
-                prec = 0;
+                state->precision = 0;
             }
-            flags |= FLAGS_PRECISION; // make sure _ftoa respects precision
+            state->flags |= FLAGS_PRECISION; // make sure _ftoa respects precision
             // no characters in exponent
             minwidth = 0U;
             expval = 0;
         } else {
             // we use one sigfig for the whole part
-            if ((prec > 0) && (flags & FLAGS_PRECISION)) {
-                --prec;
+            if ((state->precision > 0) && (state->flags & FLAGS_PRECISION)) {
+                --state->precision;
             }
         }
     }
 
     // will everything fit?
-    unsigned int fwidth = width;
-    if (width > minwidth) {
+    unsigned int fwidth = state->width;
+    if (fwidth > minwidth) {
         // we didn't fall-back so subtract the characters required for the exponent
         fwidth -= minwidth;
     } else {
         // not enough characters, so go back to default sizing
         fwidth = 0U;
     }
-    if ((flags & FLAGS_LEFT) && minwidth) {
+    if ((state->flags & FLAGS_LEFT) && minwidth) {
         // if we're padding on the right, DON'T pad the floating part
         fwidth = 0U;
     }
@@ -528,43 +515,57 @@ static size_t _etoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen, d
     }
 
     // output the floating part
-    const size_t start_idx = idx;
-    idx = _ftoa(out, buffer, idx, maxlen, negative ? -value : value, prec, fwidth, flags & ~FLAGS_ADAPT_EXP);
+    const size_t start_idx = fmt_state_len(state);
+    struct fmt_state substate = {
+        .flags = state->flags & ~FLAGS_ADAPT_EXP,
+        .width = fwidth,
+        .precision = state->precision,
+        .specifier = 'f',
+        .ctx = state->ctx,
+    };
+    _ftoa(&substate, negative ? -value : value);
 
     // output the exponent part
     if (minwidth) {
         // output the exponential symbol
-        out((flags & FLAGS_UPPERCASE) ? 'E' : 'e', buffer, idx++, maxlen);
+        fmt_state_putchar(state, (state->flags & FLAGS_UPPERCASE) ? 'E' : 'e');
         // output the exponent value
-        idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned int) ((expval < 0) ? -expval : expval), expval < 0, 10, 0, minwidth - 1,
-                         FLAGS_ZEROPAD | FLAGS_PLUS);
+        struct fmt_state substate = {
+            .flags = FLAGS_ZEROPAD | FLAGS_PLUS,
+            .width = minwidth - 1,
+            .precision = 0,
+            .specifier = 'd',
+            .ctx = state->ctx,
+        };
+        _ntoa_long(&substate, (unsigned int) ((expval < 0) ? -expval : expval), expval < 0, 10);
         // might need to right-pad spaces
-        if (flags & FLAGS_LEFT) {
-            while (idx - start_idx < width)
-                out(' ', buffer, idx++, maxlen);
+        if (state->flags & FLAGS_LEFT) {
+            while (fmt_state_len(state) - start_idx < state->width)
+                fmt_state_putchar(state, ' ');
         }
     }
-    return idx;
 }
 
 #endif // PICO_PRINTF_SUPPORT_EXPONENTIAL
 #endif // PICO_PRINTF_SUPPORT_FLOAT
 
-// internal vsnprintf
-static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen, const char *format, va_list va) {
-    unsigned int flags, width, precision, n;
-    size_t idx = 0U;
-
-    if (!buffer) {
-        // use null output function
-        out = _out_null;
-    }
+int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
+    unsigned int n;
+    struct fmt_ctx _ctx = {
+        .fct = fct,
+        .arg = arg,
+        .idx = 0,
+    };
+    struct fmt_state _state = {
+        .ctx = &_ctx,
+    };
+    struct fmt_state *state = &_state;
 
     while (*format) {
-        // format specifier?  %[flags][width][.precision][length]
+        // format specifier?  %[flags][width][.precision][size]specifier
         if (*format != '%') {
             // no
-            out(*format, buffer, idx++, maxlen);
+            fmt_state_putchar(state, *format);
             format++;
             continue;
         } else {
@@ -573,31 +574,31 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen, const
         }
 
         // evaluate flags
-        flags = 0U;
+        state->flags = 0U;
         do {
             switch (*format) {
                 case '0':
-                    flags |= FLAGS_ZEROPAD;
+                    state->flags |= FLAGS_ZEROPAD;
                     format++;
                     n = 1U;
                     break;
                 case '-':
-                    flags |= FLAGS_LEFT;
+                    state->flags |= FLAGS_LEFT;
                     format++;
                     n = 1U;
                     break;
                 case '+':
-                    flags |= FLAGS_PLUS;
+                    state->flags |= FLAGS_PLUS;
                     format++;
                     n = 1U;
                     break;
                 case ' ':
-                    flags |= FLAGS_SPACE;
+                    state->flags |= FLAGS_SPACE;
                     format++;
                     n = 1U;
                     break;
                 case '#':
-                    flags |= FLAGS_HASH;
+                    state->flags |= FLAGS_HASH;
                     format++;
                     n = 1U;
                     break;
@@ -608,64 +609,64 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen, const
         } while (n);
 
         // evaluate width field
-        width = 0U;
+        state->width = 0U;
         if (_is_digit(*format)) {
-            width = _atoi(&format);
+            state->width = _atoi(&format);
         } else if (*format == '*') {
             const int w = va_arg(va, int);
             if (w < 0) {
-                flags |= FLAGS_LEFT; // reverse padding
-                width = (unsigned int) -w;
+                state->flags |= FLAGS_LEFT; // reverse padding
+                state->width = (unsigned int) -w;
             } else {
-                width = (unsigned int) w;
+                state->width = (unsigned int) w;
             }
             format++;
         }
 
         // evaluate precision field
-        precision = 0U;
+        state->precision = 0U;
         if (*format == '.') {
-            flags |= FLAGS_PRECISION;
+            state->flags |= FLAGS_PRECISION;
             format++;
             if (_is_digit(*format)) {
-                precision = _atoi(&format);
+                state->precision = _atoi(&format);
             } else if (*format == '*') {
                 const int prec = (int) va_arg(va, int);
-                precision = prec > 0 ? (unsigned int) prec : 0U;
+                state->precision = prec > 0 ? (unsigned int) prec : 0U;
                 format++;
             }
         }
 
-        // evaluate length field
+        // evaluate size field
         switch (*format) {
             case 'l':
-                flags |= FLAGS_LONG;
+                state->flags |= FLAGS_LONG;
                 format++;
                 if (*format == 'l') {
-                    flags |= FLAGS_LONG_LONG;
+                    state->flags |= FLAGS_LONG_LONG;
                     format++;
                 }
                 break;
             case 'h':
-                flags |= FLAGS_SHORT;
+                state->flags |= FLAGS_SHORT;
                 format++;
                 if (*format == 'h') {
-                    flags |= FLAGS_CHAR;
+                    state->flags |= FLAGS_CHAR;
                     format++;
                 }
                 break;
 #if PICO_PRINTF_SUPPORT_PTRDIFF_T
             case 't':
-                flags |= (sizeof(ptrdiff_t) == sizeof(long) ? FLAGS_LONG : FLAGS_LONG_LONG);
+                state->flags |= (sizeof(ptrdiff_t) == sizeof(long) ? FLAGS_LONG : FLAGS_LONG_LONG);
                 format++;
                 break;
 #endif
             case 'j':
-                flags |= (sizeof(intmax_t) == sizeof(long) ? FLAGS_LONG : FLAGS_LONG_LONG);
+                state->flags |= (sizeof(intmax_t) == sizeof(long) ? FLAGS_LONG : FLAGS_LONG_LONG);
                 format++;
                 break;
             case 'z':
-                flags |= (sizeof(size_t) == sizeof(long) ? FLAGS_LONG : FLAGS_LONG_LONG);
+                state->flags |= (sizeof(size_t) == sizeof(long) ? FLAGS_LONG : FLAGS_LONG_LONG);
                 format++;
                 break;
             default:
@@ -673,7 +674,9 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen, const
         }
 
         // evaluate specifier
-        switch (*format) {
+        state->specifier = *format;
+        format++;
+        switch (state->specifier) {
             case 'd':
             case 'i':
             case 'u':
@@ -683,224 +686,165 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen, const
             case 'b': {
                 // set the base
                 unsigned int base;
-                if (*format == 'x' || *format == 'X') {
+                if (state->specifier == 'x' || state->specifier == 'X') {
                     base = 16U;
-                } else if (*format == 'o') {
+                } else if (state->specifier == 'o') {
                     base = 8U;
-                } else if (*format == 'b') {
+                } else if (state->specifier == 'b') {
                     base = 2U;
                 } else {
                     base = 10U;
-                    flags &= ~FLAGS_HASH; // no hash for dec format
+                    state->flags &= ~FLAGS_HASH; // no hash for dec format
                 }
                 // uppercase
-                if (*format == 'X') {
-                    flags |= FLAGS_UPPERCASE;
+                if (state->specifier == 'X') {
+                    state->flags |= FLAGS_UPPERCASE;
                 }
 
                 // no plus or space flag for u, x, X, o, b
-                if ((*format != 'i') && (*format != 'd')) {
-                    flags &= ~(FLAGS_PLUS | FLAGS_SPACE);
+                if ((state->specifier != 'i') && (state->specifier != 'd')) {
+                    state->flags &= ~(FLAGS_PLUS | FLAGS_SPACE);
                 }
 
                 // ignore '0' flag when precision is given
-                if (flags & FLAGS_PRECISION) {
-                    flags &= ~FLAGS_ZEROPAD;
+                if (state->flags & FLAGS_PRECISION) {
+                    state->flags &= ~FLAGS_ZEROPAD;
                 }
 
                 // convert the integer
-                if ((*format == 'i') || (*format == 'd')) {
+                if ((state->specifier == 'i') || (state->specifier == 'd')) {
                     // signed
-                    if (flags & FLAGS_LONG_LONG) {
+                    if (state->flags & FLAGS_LONG_LONG) {
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                         const long long value = va_arg(va, long long);
-                        idx = _ntoa_long_long(out, buffer, idx, maxlen,
-                                              (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base,
-                                              precision, width, flags);
+                        _ntoa_long_long(state,
+                                        (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
 #endif
-                    } else if (flags & FLAGS_LONG) {
+                    } else if (state->flags & FLAGS_LONG) {
                         const long value = va_arg(va, long);
-                        idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long) (value > 0 ? value : 0 - value),
-                                         value < 0, base, precision, width, flags);
+                        _ntoa_long(state, (unsigned long) (value > 0 ? value : 0 - value),
+                                   value < 0, base);
                     } else {
-                        const int value = (flags & FLAGS_CHAR) ? (char) va_arg(va, int) : (flags & FLAGS_SHORT) ? (short int) va_arg(va, int)
-                                                                                                                : va_arg(va, int);
-                        idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned int) (value > 0 ? value : 0 - value),
-                                         value < 0, base, precision, width, flags);
+                        const int value = (state->flags & FLAGS_CHAR)    ? (char) va_arg(va, int)
+                                          : (state->flags & FLAGS_SHORT) ? (short int) va_arg(va, int)
+                                                                         : va_arg(va, int);
+                        _ntoa_long(state, (unsigned int) (value > 0 ? value : 0 - value),
+                                   value < 0, base);
                     }
                 } else {
                     // unsigned
-                    if (flags & FLAGS_LONG_LONG) {
+                    if (state->flags & FLAGS_LONG_LONG) {
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-                        idx = _ntoa_long_long(out, buffer, idx, maxlen, va_arg(va, unsigned long long), false, base,
-                                              precision, width, flags);
+                        _ntoa_long_long(state, va_arg(va, unsigned long long), false, base);
 #endif
-                    } else if (flags & FLAGS_LONG) {
-                        idx = _ntoa_long(out, buffer, idx, maxlen, va_arg(va, unsigned long), false, base, precision,
-                                         width, flags);
+                    } else if (state->flags & FLAGS_LONG) {
+                        _ntoa_long(state, va_arg(va, unsigned long), false, base);
                     } else {
-                        const unsigned int value = (flags & FLAGS_CHAR) ? (unsigned char) va_arg(va, unsigned int)
-                                                   : (flags & FLAGS_SHORT)
-                                                       ? (unsigned short int) va_arg(va,
-                                                                                     unsigned int)
-                                                       : va_arg(va, unsigned int);
-                        idx = _ntoa_long(out, buffer, idx, maxlen, value, false, base, precision, width, flags);
+                        const unsigned int value = (state->flags & FLAGS_CHAR)    ? (unsigned char) va_arg(va, unsigned int)
+                                                   : (state->flags & FLAGS_SHORT) ? (unsigned short int) va_arg(va, unsigned int)
+                                                                                  : va_arg(va, unsigned int);
+                        _ntoa_long(state, value, false, base);
                     }
                 }
-                format++;
                 break;
             }
             case 'f':
             case 'F':
 #if PICO_PRINTF_SUPPORT_FLOAT
-                if (*format == 'F')
-                    flags |= FLAGS_UPPERCASE;
-                idx = _ftoa(out, buffer, idx, maxlen, va_arg(va, double), precision, width, flags);
+                if (state->specifier == 'F')
+                    state->flags |= FLAGS_UPPERCASE;
+                _ftoa(state, va_arg(va, double));
 #else
                 for (int i = 0; i < 2; i++)
-                    out('?', buffer, idx++, maxlen);
+                    fmt_state_putchar(state, '?');
                 va_arg(va, double);
 #endif
-                format++;
                 break;
             case 'e':
             case 'E':
             case 'g':
             case 'G':
 #if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
-                if ((*format == 'g') || (*format == 'G'))
-                    flags |= FLAGS_ADAPT_EXP;
-                if ((*format == 'E') || (*format == 'G'))
-                    flags |= FLAGS_UPPERCASE;
-                idx = _etoa(out, buffer, idx, maxlen, va_arg(va, double), precision, width, flags);
+                if ((state->specifier == 'g') || (state->specifier == 'G'))
+                    state->flags |= FLAGS_ADAPT_EXP;
+                if ((state->specifier == 'E') || (state->specifier == 'G'))
+                    state->flags |= FLAGS_UPPERCASE;
+                _etoa(state, va_arg(va, double));
 #else
                 for (int i = 0; i < 2; i++)
-                    out('?', buffer, idx++, maxlen);
+                    fmt_state_putchar(state, '?');
                 va_arg(va, double);
 #endif
-                format++;
                 break;
             case 'c': {
                 unsigned int l = 1U;
                 // pre padding
-                if (!(flags & FLAGS_LEFT)) {
-                    while (l++ < width) {
-                        out(' ', buffer, idx++, maxlen);
+                if (!(state->flags & FLAGS_LEFT)) {
+                    while (l++ < state->width) {
+                        fmt_state_putchar(state, ' ');
                     }
                 }
                 // char output
-                out((char) va_arg(va, int), buffer, idx++, maxlen);
+                fmt_state_putchar(state, (char) va_arg(va, int));
                 // post padding
-                if (flags & FLAGS_LEFT) {
-                    while (l++ < width) {
-                        out(' ', buffer, idx++, maxlen);
+                if (state->flags & FLAGS_LEFT) {
+                    while (l++ < state->width) {
+                        fmt_state_putchar(state, ' ');
                     }
                 }
-                format++;
                 break;
             }
 
             case 's': {
                 const char *p = va_arg(va, char *);
-                unsigned int l = _strnlen_s(p, precision ? precision : (size_t) -1);
+                unsigned int l = _strnlen_s(p, state->precision ? state->precision : (size_t) -1);
                 // pre padding
-                if (flags & FLAGS_PRECISION) {
-                    l = (l < precision ? l : precision);
+                if (state->flags & FLAGS_PRECISION) {
+                    l = (l < state->precision ? l : state->precision);
                 }
-                if (!(flags & FLAGS_LEFT)) {
-                    while (l++ < width) {
-                        out(' ', buffer, idx++, maxlen);
+                if (!(state->flags & FLAGS_LEFT)) {
+                    while (l++ < state->width) {
+                        fmt_state_putchar(state, ' ');
                     }
                 }
                 // string output
-                while ((*p != 0) && (!(flags & FLAGS_PRECISION) || precision--)) {
-                    out(*(p++), buffer, idx++, maxlen);
+                while ((*p != 0) && (!(state->flags & FLAGS_PRECISION) || state->precision--)) {
+                    fmt_state_putchar(state, *(p++));
                 }
                 // post padding
-                if (flags & FLAGS_LEFT) {
-                    while (l++ < width) {
-                        out(' ', buffer, idx++, maxlen);
+                if (state->flags & FLAGS_LEFT) {
+                    while (l++ < state->width) {
+                        fmt_state_putchar(state, ' ');
                     }
                 }
-                format++;
                 break;
             }
 
             case 'p': {
-                width = sizeof(void *) * 2U;
-                flags |= FLAGS_ZEROPAD | FLAGS_UPPERCASE;
+                state->width = sizeof(void *) * 2U;
+                state->flags |= FLAGS_ZEROPAD | FLAGS_UPPERCASE;
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                 const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
                 if (is_ll) {
-                    idx = _ntoa_long_long(out, buffer, idx, maxlen, (uintptr_t) va_arg(va, void *), false, 16U,
-                                          precision, width, flags);
+                    _ntoa_long_long(state, (uintptr_t) va_arg(va, void *), false, 16U);
                 } else {
 #endif
-                    idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long) ((uintptr_t) va_arg(va, void *)), false,
-                                     16U, precision, width, flags);
+                    _ntoa_long(state, (unsigned long) ((uintptr_t) va_arg(va, void *)), false, 16U);
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                 }
 #endif
-                format++;
                 break;
             }
 
             case '%':
-                out('%', buffer, idx++, maxlen);
-                format++;
+                fmt_state_putchar(state, '%');
                 break;
 
             default:
-                out(*format, buffer, idx++, maxlen);
-                format++;
+                fmt_state_putchar(state, state->specifier);
                 break;
         }
     }
 
-    // termination
-    out((char) 0, buffer, idx < maxlen ? idx : maxlen - 1U, maxlen);
-
-    // return written chars without terminating \0
-    return (int) idx;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-int fmt_vfctprintf(fmt_fct_t out, void *arg, const char *format, va_list va) {
-    const out_fct_wrap_type out_fct_wrap = {out, arg};
-    return _vsnprintf(_out_fct, (char *) (uintptr_t) &out_fct_wrap, (size_t) -1, format, va);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-int fmt_fctprintf(fmt_fct_t out, void *arg, const char *format, ...) {
-    va_list va;
-    va_start(va, format);
-    const int ret = fmt_vfctprintf(out, arg, format, va);
-    va_end(va);
-    return ret;
-}
-
-int fmt_sprintf(char *buffer, const char *format, ...) {
-    va_list va;
-    va_start(va, format);
-    const int ret = _vsnprintf(_out_buffer, buffer, (size_t) -1, format, va);
-    va_end(va);
-    return ret;
-}
-
-int fmt_vsprintf(char *buffer, const char *format, va_list va) {
-    return _vsnprintf(_out_buffer, buffer, (size_t) -1, format, va);
-}
-
-int fmt_snprintf(char *buffer, size_t count, const char *format, ...) {
-    va_list va;
-    va_start(va, format);
-    const int ret = _vsnprintf(_out_buffer, buffer, count, format, va);
-    va_end(va);
-    return ret;
-}
-
-int fmt_vsnprintf(char *buffer, size_t count, const char *format, va_list va) {
-    return _vsnprintf(_out_buffer, buffer, count, format, va);
+    return (int) fmt_state_len(state);
 }

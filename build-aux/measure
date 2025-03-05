@@ -284,6 +284,15 @@ def read_ci(
                     if fn.name not in graph:
                         graph[fn.name] = fn
                 elif m := re.match(
+                    r'^node: { title: "(?P<title>memset|memcpy)" label: "__builtin_\1\\n<built-in>" shape : ellipse }$',
+                    line,
+                ):
+                    fn = CIFunc(
+                        name=clean_name(m.group("title")), nstatic=0, calls=set(), missing=True
+                    )
+                    if fn.name not in graph:
+                        graph[fn.name] = fn
+                elif m := re.match(
                     r'^edge: { sourcename: "(?P<source>[^"]+)" targetname: "(?P<target>[^"]+)" label: "(?P<label>[^"]+)" }$',
                     line,
                 ):
@@ -399,9 +408,14 @@ def measure_stack(prefix: str, elffile: str, objfiles: list[str], cifiles: list[
         if funcname in chain:
             cycles: list[tuple[list[str], str]] = [
                 (["_etoa", "_ftoa"], "_etoa"),
+                (["memcpy", "__memcpy_slow_lp"], "__memcpy_slow_lp"),
             ]
             for tail, kill in cycles:
-                if len(chain) >= len(tail) and chain[-len(tail) :] == tail and funcname == kill:
+                if (
+                    len(chain) >= len(tail)
+                    and [c.split(".", 1)[0] for c in chain[-len(tail) :]] == tail
+                    and funcname.split(".", 1)[0] == kill
+                ):
                     return 0
             if len(chain) > 20:
                 raise ValueError(f"cycle: {chain+[funcname]}")
@@ -446,7 +460,8 @@ def measure_one(prefix: str, srcfiles: typing.Collection[str], cflags: list[str]
                 check=True,
             )
             objfiles.append(objfile)
-            cifiles.append(cifile)
+            if srcfile.endswith(".c"):
+                cifiles.append(cifile)
 
         # Gather #####################################################
 
@@ -603,7 +618,15 @@ def main() -> None:
             "pico-fmt/v0.0.1",
             {"pico_fmt/printf.c", "pico_fmt/include/pico/fmt_printf.h"},
         ),
-        ("pico-fmt Git-main", "HEAD", {"pico_fmt/printf.c", "pico_fmt/include/pico/fmt_printf.h"}),
+        (
+            "pico-fmt Git-main",
+            "HEAD",
+            {
+                "pico_fmt/printf.c",
+                "pico_fmt/include/pico/fmt_printf.h",
+                "build-aux/measure_stubs.S",
+            },
+        ),
     ]
 
     tables: dict[str, dict[str, RowMeasurement]] = {}
