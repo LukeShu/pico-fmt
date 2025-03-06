@@ -105,11 +105,15 @@
 #define FMT_FLAG_SPACE     (1U << 3U)
 #define FMT_FLAG_HASH      (1U << 4U)
 #define FMT_FLAG_UPPERCASE (1U << 5U)
-#define FMT_FLAG_CHAR      (1U << 6U)
-#define FMT_FLAG_SHORT     (1U << 7U)
-#define FMT_FLAG_LONG      (1U << 8U)
-#define FMT_FLAG_LONG_LONG (1U << 9U)
 #define FMT_FLAG_PRECISION (1U << 10U)
+
+enum fmt_size {
+    FMT_SIZE_CHAR,      // "hh"
+    FMT_SIZE_SHORT,     // "h"
+    FMT_SIZE_DEFAULT,   // ""
+    FMT_SIZE_LONG,      // "l"
+    FMT_SIZE_LONG_LONG, // "ll"
+};
 
 struct fmt_ctx {
     fmt_fct_t fct;
@@ -119,9 +123,10 @@ struct fmt_ctx {
 
 struct fmt_state {
     // %[flags][width][.precision][size]specifier
-    unsigned int flags; // size is stored as flags
+    unsigned int flags;
     unsigned int width;
     unsigned int precision;
+    enum fmt_size size;
     char specifier;
 
     struct fmt_ctx *ctx;
@@ -610,35 +615,36 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
         }
 
         // evaluate size field
+        state->size = FMT_SIZE_DEFAULT;
         switch (*format) {
             case 'l':
-                state->flags |= FMT_FLAG_LONG;
+                state->size = FMT_SIZE_LONG;
                 format++;
                 if (*format == 'l') {
-                    state->flags |= FMT_FLAG_LONG_LONG;
+                    state->size = FMT_SIZE_LONG_LONG;
                     format++;
                 }
                 break;
             case 'h':
-                state->flags |= FMT_FLAG_SHORT;
+                state->size = FMT_SIZE_SHORT;
                 format++;
                 if (*format == 'h') {
-                    state->flags |= FMT_FLAG_CHAR;
+                    state->size = FMT_SIZE_CHAR;
                     format++;
                 }
                 break;
 #if PICO_PRINTF_SUPPORT_PTRDIFF_T
             case 't':
-                state->flags |= (sizeof(ptrdiff_t) == sizeof(long) ? FMT_FLAG_LONG : FMT_FLAG_LONG_LONG);
+                state->size = (sizeof(ptrdiff_t) == sizeof(long) ? FMT_SIZE_LONG : FMT_SIZE_LONG_LONG);
                 format++;
                 break;
 #endif
             case 'j':
-                state->flags |= (sizeof(intmax_t) == sizeof(long) ? FMT_FLAG_LONG : FMT_FLAG_LONG_LONG);
+                state->size = (sizeof(intmax_t) == sizeof(long) ? FMT_SIZE_LONG : FMT_SIZE_LONG_LONG);
                 format++;
                 break;
             case 'z':
-                state->flags |= (sizeof(size_t) == sizeof(long) ? FMT_FLAG_LONG : FMT_FLAG_LONG_LONG);
+                state->size = (sizeof(size_t) == sizeof(long) ? FMT_SIZE_LONG : FMT_SIZE_LONG_LONG);
                 format++;
                 break;
             default:
@@ -686,36 +692,68 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
                 // convert the integer
                 if ((state->specifier == 'i') || (state->specifier == 'd')) {
                     // signed
-                    if (state->flags & FMT_FLAG_LONG_LONG) {
+                    switch (state->size) {
+                        case FMT_SIZE_LONG_LONG:
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-                        const long long value = va_arg(va, long long);
-                        _ntoall(state,
-                                (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
+                        {
+                            const long long value = va_arg(va, long long);
+                            _ntoall(state, (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
+                            break;
+                        }
+#else
+                            // fall through
 #endif
-                    } else if (state->flags & FMT_FLAG_LONG) {
-                        const long value = va_arg(va, long);
-                        _ntoal(state, (unsigned long) (value > 0 ? value : 0 - value),
-                               value < 0, base);
-                    } else {
-                        const int value = (state->flags & FMT_FLAG_CHAR)    ? (char) va_arg(va, int)
-                                          : (state->flags & FMT_FLAG_SHORT) ? (short int) va_arg(va, int)
-                                                                            : va_arg(va, int);
-                        _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value),
-                              value < 0, base);
+                        case FMT_SIZE_LONG: {
+                            const long value = va_arg(va, long);
+                            _ntoal(state, (unsigned long) (value > 0 ? value : 0 - value), value < 0, base);
+                            break;
+                        }
+                        case FMT_SIZE_DEFAULT: {
+                            const int value = va_arg(va, int);
+                            _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
+                            break;
+                        }
+                        case FMT_SIZE_SHORT: {
+                            // 'short' is promoted to 'int' when passed through '...'; so we read it
+                            // with va_arg(va, int), but then truncate it with casting.
+                            const int value = (short int) va_arg(va, int);
+                            _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
+                            break;
+                        }
+                        case FMT_SIZE_CHAR: {
+                            // 'char' is promoted to 'int' when passed through '...'; so we read it
+                            // with va_arg(va, int), but then truncate it with casting.
+                            const int value = (char) va_arg(va, int);
+                            _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
+                            break;
+                        }
                     }
                 } else {
                     // unsigned
-                    if (state->flags & FMT_FLAG_LONG_LONG) {
+                    switch (state->size) {
+                        case FMT_SIZE_LONG_LONG:
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-                        _ntoall(state, va_arg(va, unsigned long long), false, base);
+                            _ntoall(state, va_arg(va, unsigned long long), false, base);
+                            break;
+#else
+                            // fall through
 #endif
-                    } else if (state->flags & FMT_FLAG_LONG) {
-                        _ntoal(state, va_arg(va, unsigned long), false, base);
-                    } else {
-                        const unsigned int value = (state->flags & FMT_FLAG_CHAR)    ? (unsigned char) va_arg(va, unsigned int)
-                                                   : (state->flags & FMT_FLAG_SHORT) ? (unsigned short int) va_arg(va, unsigned int)
-                                                                                     : va_arg(va, unsigned int);
-                        _ntoa(state, value, false, base);
+                        case FMT_SIZE_LONG:
+                            _ntoal(state, va_arg(va, unsigned long), false, base);
+                            break;
+                        case FMT_SIZE_DEFAULT:
+                            _ntoa(state, va_arg(va, unsigned int), false, base);
+                            break;
+                        case FMT_SIZE_SHORT:
+                            // 'short' is promoted to 'int' when passed through '...'; so we read it
+                            // with va_arg(va, unsigned int), but then truncate it with casting.
+                            _ntoa(state, (unsigned short int) va_arg(va, unsigned int), false, base);
+                            break;
+                        case FMT_SIZE_CHAR:
+                            // 'char' is promoted to 'int' when passed through '...'; so we read it
+                            // with va_arg(va, unsigned int), but then truncate it with casting.
+                            _ntoa(state, (unsigned char) va_arg(va, unsigned int), false, base);
+                            break;
                     }
                 }
                 break;
