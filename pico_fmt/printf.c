@@ -133,6 +133,8 @@ struct fmt_state {
     struct fmt_ctx *ctx;
 };
 
+typedef void (*fmt_specifier_t)(struct fmt_state *);
+
 static inline void fmt_state_putchar(struct fmt_state *state, char character) {
     if (state->ctx->fct) {
         state->ctx->fct(character, state->ctx->arg);
@@ -542,6 +544,29 @@ static void conv_str(struct fmt_state *state);
 static void conv_ptr(struct fmt_state *state);
 static void conv_pct(struct fmt_state *state);
 
+static fmt_specifier_t specifier_table[0x100] = {
+    ['d'] = conv_int,
+    ['i'] = conv_int,
+
+    ['u'] = conv_int,
+    ['x'] = conv_int,
+    ['X'] = conv_int,
+    ['o'] = conv_int,
+    ['b'] = conv_int,
+
+    ['f'] = conv_double,
+    ['F'] = conv_double,
+    ['e'] = conv_double,
+    ['E'] = conv_double,
+    ['g'] = conv_double,
+    ['G'] = conv_double,
+
+    ['c'] = conv_char,
+    ['s'] = conv_str,
+    ['p'] = conv_ptr,
+    ['%'] = conv_pct,
+};
+
 int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
     struct fmt_ctx _ctx = {
         .fct = fct,
@@ -667,40 +692,10 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
         // evaluate specifier
         state->specifier = *format;
         format++;
-        switch (state->specifier) {
-            case 'd':
-            case 'i':
-            case 'u':
-            case 'x':
-            case 'X':
-            case 'o':
-            case 'b':
-                conv_int(state);
-                break;
-            case 'f':
-            case 'F':
-            case 'e':
-            case 'E':
-            case 'g':
-            case 'G':
-                conv_double(state);
-                break;
-            case 'c':
-                conv_char(state);
-                break;
-            case 's':
-                conv_str(state);
-                break;
-            case 'p':
-                conv_ptr(state);
-                break;
-            case '%':
-                conv_pct(state);
-                break;
-
-            default:
-                fmt_state_putchar(state, state->specifier);
-                break;
+        if (specifier_table[(unsigned int) state->specifier]) {
+            specifier_table[(unsigned int) state->specifier](state);
+        } else {
+            fmt_state_putchar(state, state->specifier);
         }
     }
 
