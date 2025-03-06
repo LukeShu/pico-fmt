@@ -780,9 +780,9 @@ static void conv_uint(struct fmt_state *state) {
 
 static void conv_double(struct fmt_state *state) {
     switch (state->specifier) {
+#if PICO_PRINTF_SUPPORT_FLOAT
         case 'f':
         case 'F': {
-#if PICO_PRINTF_SUPPORT_FLOAT
             double value = va_arg(*state->args, double);
             // test for very large values
             // standard printf behavior is to print EVERY whole number digit -- which could be 100s of characters overflowing your buffers == bad
@@ -793,25 +793,23 @@ static void conv_double(struct fmt_state *state) {
                 break;
             }
             _ftoa(state, value);
-#else
-            for (int i = 0; i < 2; i++)
-                fmt_state_putchar(state, '?');
-            va_arg(*state->args, double);
-#endif
             break;
         }
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
         case 'e':
         case 'E':
+            _etoa(state, va_arg(*state->args, double), false);
+            break;
         case 'g':
         case 'G':
-#if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
-            _etoa(state, va_arg(*state->args, double), (state->specifier == 'g') || (state->specifier == 'G'));
-#else
+            _etoa(state, va_arg(*state->args, double), true);
+            break;
+#endif
+#endif
+        default:
             for (int i = 0; i < 2; i++)
                 fmt_state_putchar(state, '?');
             va_arg(*state->args, double);
-#endif
-            break;
     }
 }
 
@@ -861,15 +859,19 @@ static void conv_ptr(struct fmt_state *state) {
     state->width = sizeof(void *) * 2U;
     state->flags |= FMT_FLAG_ZEROPAD;
     state->specifier = 'X';
+
+    _Static_assert(sizeof(uintptr_t) == sizeof(int) ||
+                   sizeof(uintptr_t) == sizeof(long) ||
+                   sizeof(uintptr_t) == sizeof(long long));
+    if (sizeof(uintptr_t) == sizeof(int))
+        _ntoa(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+    else if (sizeof(uintptr_t) == sizeof(long))
+        _ntoal(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+    else if (sizeof(uintptr_t) == sizeof(long long))
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-    const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
-    if (is_ll) {
         _ntoall(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
-    } else {
-#endif
-        _ntoal(state, (unsigned long) ((uintptr_t) va_arg(*state->args, void *)), false, 16U);
-#if PICO_PRINTF_SUPPORT_LONG_LONG
-    }
+#else
+        _ntoal(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
 #endif
 }
 
