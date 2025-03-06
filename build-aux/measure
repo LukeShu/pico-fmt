@@ -529,9 +529,9 @@ def measure_one(prefix: str, srcfiles: typing.Collection[str], cflags: list[str]
             if len(fields) > 4 and fields[0] in (".text", ".rodata", ".data", ".bss"):
                 sections[fields[0][1:]] = int(fields[4], 16)
 
-        assert sections["data"] == 0
+        assert sections["data"] in [0, 0x7F * 4]
+
         assert sections["bss"] == 0
-        del sections["data"]
         del sections["bss"]
 
         return sections
@@ -633,6 +633,7 @@ def main() -> None:
             {
                 "pico_fmt/printf.c",
                 "pico_fmt/include/pico/fmt_printf.h",
+                "pico_fmt/include/pico/fmt_install.h",
                 "build-aux/measure_stubs.S",
             },
         ),

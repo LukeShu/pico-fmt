@@ -33,6 +33,11 @@ Compared to pico-sdk's version, pico-fmt is:
 
  - **More featureful:**
 
+    + New specifier characters (`%x`) may be registered with the
+      `fmt_install()` function, similar to GNU
+      `register_printf_specifier()` or Plan 9 `fmtinstall()`.  See the
+      [Extending](#extending) section.
+
     + The CMake function `pico_set_printf_implementation()` may be
       called on an OBJECT_LIBRARY, not just an EXECUTABLE.
 
@@ -135,43 +140,54 @@ int printf(const char *format, ...) {
 I dislike Bazel even more than I dislike CMake; I do not provide Bazel
 build files for pico-fmt (but contributions welcome!).
 
+# Extending
+
+In the `%[flags][width][.precision][size]specifier` syntax, new
+specifier characters may be registered by including
+`<pico/fmt_install.h>` and calling `fmt_install()`, similar to GNU
+`register_printf_specifier()` or Plan 9 `fmtinstall()`.
+
+TODO: Write an example.
+
+Refer to `pico_fmt/include/pico/fmt_install.h` for the full API
+documentation.
+
 # Size
 
 <!-- BEGIN ./build-aux/measure output -->
 With arm-none-eabi-gcc version `arm-none-eabi-gcc (Arch Repository) 14.2.0`:
 
   Debug = `-mcpu=cortex-m0plus -mthumb -g -Og`:
-  |                         |                  text                   |                rodata                |              max_stack              |
-  |-------------------------|-----------------------------------------|--------------------------------------|-------------------------------------|
-  |                         | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp =  tot | mini + ptr + ll + float + exp = tot |
-  |-------------------------|-----------------------------------------|--------------------------------------|-------------------------------------|
-  | pico-sdk 2.1.1 Debug    | 2288 +   8 + 916 +  4552 + 3868 = 11632 |  336 +  76 +  0 +   108 +   0 =  520 |  320 +   0 + 48 +     0 + 208 = 576 |
-  | pico-fmt Git-main Debug | 1964 +  16 + 720 +  4560 + 3760 = 11020 | 1232 +  76 + 40 +   108 +   0 = 1456 |  192 +   0 + 76 +     0 + 116 = 384 |
+  |                         |                  text                   |               rodata                |                data                 |              max_stack              |
+  |-------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|-------------------------------------|
+  |                         | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp = tot | mini + ptr + ll + float + exp = tot | mini + ptr + ll + float + exp = tot |
+  |-------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|-------------------------------------|
+  | pico-sdk 2.1.1 Debug    | 2288 +   8 + 916 +  4552 + 3868 = 11632 |  336 +  76 +  0 +   108 +   0 = 520 |    0 +   0 +  0 +     0 +   0 =   0 |  320 +   0 + 48 +     0 + 208 = 576 |
+  | pico-fmt Git-main Debug | 1972 +  12 + 720 +  4560 + 3760 = 11024 |  208 +  76 + 40 +   108 +   0 = 432 |  508 +   0 +  0 +     0 +   0 = 508 |  192 +   0 + 76 +     0 + 116 = 384 |
 
   Release = `-mcpu=cortex-m0plus -mthumb -g -O3 -DNDEBUG`:
-  |                           |                  text                   |                rodata                |              max_stack              |
-  |---------------------------|-----------------------------------------|--------------------------------------|-------------------------------------|
-  |                           | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp =  tot | mini + ptr + ll + float + exp = tot |
-  |---------------------------|-----------------------------------------|--------------------------------------|-------------------------------------|
-  | pico-sdk 2.1.1 Release    | 3440 +  64 + 756 +  4852 + 4236 = 13348 |  336 +  76 +  0 +   108 +   0 =  520 |  228 +   8 + 48 +    36 + 336 = 656 |
-  | pico-fmt Git-main Release | 2980 + -16 + 988 +  5028 + 4892 = 13872 | 1232 +  76 + 40 +   108 +   0 = 1456 |  196 +  -8 + 48 +     0 + 204 = 440 |
+  |                           |                  text                   |               rodata                |                data                 |              max_stack              |
+  |---------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|-------------------------------------|
+  |                           | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp = tot | mini + ptr + ll + float + exp = tot | mini + ptr + ll + float + exp = tot |
+  |---------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|-------------------------------------|
+  | pico-sdk 2.1.1 Release    | 3440 +  64 + 756 +  4852 + 4236 = 13348 |  336 +  76 +  0 +   108 +   0 = 520 |    0 +   0 +  0 +     0 +   0 =   0 |  228 +   8 + 48 +    36 + 336 = 656 |
+  | pico-fmt Git-main Release | 2936 +  20 + 988 +  5028 + 4892 = 13864 |  208 +  76 + 40 +   108 +   0 = 432 |  508 +   0 +  0 +     0 +   0 = 508 |  188 +   0 + 48 +     0 + 204 = 440 |
 
   MinSizeRel = `-mcpu=cortex-m0plus -mthumb -g -Os -DNDEBUG`:
-  |                              |                  text                   |                rodata                |              max_stack               |
-  |------------------------------|-----------------------------------------|--------------------------------------|--------------------------------------|
-  |                              | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp =  tot | mini + ptr +  ll + float + exp = tot |
-  |------------------------------|-----------------------------------------|--------------------------------------|--------------------------------------|
-  | pico-sdk 2.1.1 MinSizeRel    | 1832 +   4 + 740 +  4532 + 3796 = 10904 |    0 +   0 +  0 +   104 +   0 =  104 |  220 +   0 + 128 +    76 + 160 = 584 |
-  | pico-fmt Git-main MinSizeRel | 1640 +   8 + 668 +  4500 + 3704 = 10520 | 1024 +   0 +  0 +   104 +   0 = 1128 |  164 +   0 +  96 +     0 + 116 = 376 |
+  |                              |                  text                   |               rodata                |                data                 |              max_stack               |
+  |------------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|--------------------------------------|
+  |                              | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp = tot | mini + ptr + ll + float + exp = tot | mini + ptr +  ll + float + exp = tot |
+  |------------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|--------------------------------------|
+  | pico-sdk 2.1.1 MinSizeRel    | 1832 +   4 + 740 +  4532 + 3796 = 10904 |    0 +   0 +  0 +   104 +   0 = 104 |    0 +   0 +  0 +     0 +   0 =   0 |  220 +   0 + 128 +    76 + 160 = 584 |
+  | pico-fmt Git-main MinSizeRel | 1648 +   8 + 668 +  4500 + 3704 = 10528 |    0 +   0 +  0 +   104 +   0 = 104 |  508 +   0 +  0 +     0 +   0 = 508 |  164 +   0 +  96 +     0 + 116 = 376 |
 <!-- END ./build-aux/measure output -->
 
 These measurements are for the printf code compiled stand-alone
 against libgcc; when used with `pico_float` or other `__aeabi_*`
 function providers, the numbers may be different.  The max_stack
 measurement obviously does not take in to account your output
-function.  The 'data' and 'bss' sections are not shown in the table
-because they always have size zero; the code does not make use of
-globals.
+function.  The 'bss' section is not shown in the table because it
+always has size zero.
 
 # License
 

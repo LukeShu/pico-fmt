@@ -42,6 +42,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "pico/fmt_install.h"
 #include "pico/fmt_printf.h"
 
 // PICO_CONFIG: PICO_PRINTF_NTOA_BUFFER_SIZE, Define printf ntoa buffer size, min=0, max=128, default=32, group=pico_printf
@@ -98,53 +99,24 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// internal flag definitions
-#define FMT_FLAG_ZEROPAD   (1U << 0U) // '0'
-#define FMT_FLAG_LEFT      (1U << 1U) // '-'
-#define FMT_FLAG_PLUS      (1U << 2U) // '+'
-#define FMT_FLAG_SPACE     (1U << 3U) // ' '
-#define FMT_FLAG_HASH      (1U << 4U) // '#'
-#define FMT_FLAG_PRECISION (1U << 5U) // state->precision is set
-
-enum fmt_size {
-    FMT_SIZE_CHAR,      // "hh"
-    FMT_SIZE_SHORT,     // "h"
-    FMT_SIZE_DEFAULT,   // ""
-    FMT_SIZE_LONG,      // "l"
-    FMT_SIZE_LONG_LONG, // "ll"
-};
-
-struct fmt_ctx {
+struct _fmt_ctx {
     fmt_fct_t fct;
     void *arg;
     size_t idx;
 };
 
-struct fmt_state {
-    // %[flags][width][.precision][size]specifier
-    unsigned char flags;
-    unsigned int width;
-    unsigned int precision;
-    enum fmt_size size;
-    char specifier;
-
-    va_list *args;
-
-    struct fmt_ctx *ctx;
-};
-
-typedef void (*fmt_specifier_t)(struct fmt_state *);
-
-static inline void fmt_state_putchar(struct fmt_state *state, char character) {
+inline void fmt_state_putchar(struct fmt_state *state, char character) {
     if (state->ctx->fct) {
         state->ctx->fct(character, state->ctx->arg);
     }
     state->ctx->idx++;
 }
 
-static inline size_t fmt_state_len(struct fmt_state *state) {
+inline size_t fmt_state_len(struct fmt_state *state) {
     return state->ctx->idx;
 }
+
+#define array_len(ary) (sizeof(ary) / sizeof(ary[0]))
 
 // internal secure strlen
 // \return The length of the string (excluding the terminating 0) limited by 'maxsize'
@@ -284,8 +256,7 @@ _define_ntoa(long long, ll);
 
 #if PICO_PRINTF_SUPPORT_FLOAT
 
-#define is_nan         __builtin_isnan
-#define array_len(ary) (sizeof(ary) / sizeof(ary[0]))
+#define is_nan __builtin_isnan
 
 static bool _float_special(struct fmt_state *state, double value) {
     // test for special values
@@ -544,7 +515,7 @@ static void conv_str(struct fmt_state *state);
 static void conv_ptr(struct fmt_state *state);
 static void conv_pct(struct fmt_state *state);
 
-static fmt_specifier_t specifier_table[0x100] = {
+static fmt_specifier_t specifier_table[0x7F] = {
     ['d'] = conv_int,
     ['i'] = conv_int,
 
@@ -567,8 +538,16 @@ static fmt_specifier_t specifier_table[0x100] = {
     ['%'] = conv_pct,
 };
 
+void fmt_install(char character, fmt_specifier_t fn) {
+    unsigned int idx = character;
+    if (idx < array_len(specifier_table) &&
+        ' ' < idx && idx <= '~' &&
+        !('0' <= idx && idx <= '9'))
+        specifier_table[idx] = fn;
+}
+
 int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
-    struct fmt_ctx _ctx = {
+    struct _fmt_ctx _ctx = {
         .fct = fct,
         .arg = arg,
         .idx = 0,
@@ -692,7 +671,8 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
         // evaluate specifier
         state->specifier = *format;
         format++;
-        if (specifier_table[(unsigned int) state->specifier]) {
+        if ((unsigned int) state->specifier < array_len(specifier_table) &&
+            specifier_table[(unsigned int) state->specifier]) {
             specifier_table[(unsigned int) state->specifier](state);
         } else {
             fmt_state_putchar(state, state->specifier);
