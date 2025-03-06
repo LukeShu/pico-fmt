@@ -104,7 +104,6 @@
 #define FMT_FLAG_PLUS      (1U << 2U)
 #define FMT_FLAG_SPACE     (1U << 3U)
 #define FMT_FLAG_HASH      (1U << 4U)
-#define FMT_FLAG_UPPERCASE (1U << 5U)
 #define FMT_FLAG_PRECISION (1U << 10U)
 
 enum fmt_size {
@@ -156,6 +155,10 @@ static inline unsigned int _strnlen_s(const char *str, size_t maxsize) {
 // \return true if char is a digit
 static inline bool _is_digit(char ch) {
     return (ch >= '0') && (ch <= '9');
+}
+
+static inline bool _is_upper(char ch) {
+    return (ch >= 'A') && (ch <= 'Z');
 }
 
 // internal ASCII string to unsigned int conversion
@@ -214,10 +217,8 @@ static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool ne
                 len--;
             }
         }
-        if ((base == 16U) && !(state->flags & FMT_FLAG_UPPERCASE) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
-            buf[len++] = 'x';
-        } else if ((base == 16U) && (state->flags & FMT_FLAG_UPPERCASE) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
-            buf[len++] = 'X';
+        if ((base == 16U) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+            buf[len++] = state->specifier;
         } else if ((base == 2U) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
             buf[len++] = 'b';
         }
@@ -239,26 +240,26 @@ static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool ne
     _out_rev(state, buf, len);
 }
 
-#define _define_ntoa(TYP, SUF)                                                                                                 \
-    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP value, bool negative, unsigned int base) {                    \
-        char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];                                                                                \
-        size_t len = 0U;                                                                                                       \
-                                                                                                                               \
-        /* no hash for 0 values */                                                                                             \
-        if (!value) {                                                                                                          \
-            state->flags &= ~FMT_FLAG_HASH;                                                                                    \
-        }                                                                                                                      \
-                                                                                                                               \
-        /* write if precision != 0 and value is != 0 */                                                                        \
-        if (!(state->flags & FMT_FLAG_PRECISION) || value) {                                                                   \
-            do {                                                                                                               \
-                const char digit = (char) (value % base);                                                                      \
-                buf[len++] = (char) (digit < 10 ? '0' + digit : (state->flags & FMT_FLAG_UPPERCASE ? 'A' : 'a') + digit - 10); \
-                value /= base;                                                                                                 \
-            } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));                                                           \
-        }                                                                                                                      \
-                                                                                                                               \
-        _ntoa_format(state, buf, len, negative, base);                                                                         \
+#define _define_ntoa(TYP, SUF)                                                                                           \
+    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP value, bool negative, unsigned int base) {              \
+        char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];                                                                          \
+        size_t len = 0U;                                                                                                 \
+                                                                                                                         \
+        /* no hash for 0 values */                                                                                       \
+        if (!value) {                                                                                                    \
+            state->flags &= ~FMT_FLAG_HASH;                                                                              \
+        }                                                                                                                \
+                                                                                                                         \
+        /* write if precision != 0 and value is != 0 */                                                                  \
+        if (!(state->flags & FMT_FLAG_PRECISION) || value) {                                                             \
+            do {                                                                                                         \
+                const char digit = (char) (value % base);                                                                \
+                buf[len++] = (char) (digit < 10 ? '0' + digit : (_is_upper(state->specifier) ? 'A' : 'a') + digit - 10); \
+                value /= base;                                                                                           \
+            } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));                                                     \
+        }                                                                                                                \
+                                                                                                                         \
+        _ntoa_format(state, buf, len, negative, base);                                                                   \
     }
 
 _define_ntoa(int, );
@@ -511,7 +512,7 @@ static void _etoa(struct fmt_state *state, double value, bool adapt_exp) {
     // output the exponent part
     if (minwidth) {
         // output the exponential symbol
-        fmt_state_putchar(state, (state->flags & FMT_FLAG_UPPERCASE) ? 'E' : 'e');
+        fmt_state_putchar(state, _is_upper(state->specifier) ? 'E' : 'e');
         // output the exponent value
         struct fmt_state substate = {
             .flags = FMT_FLAG_ZEROPAD | FMT_FLAG_PLUS,
@@ -674,10 +675,6 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
                     base = 10U;
                     state->flags &= ~FMT_FLAG_HASH; // no hash for dec format
                 }
-                // uppercase
-                if (state->specifier == 'X') {
-                    state->flags |= FMT_FLAG_UPPERCASE;
-                }
 
                 // no plus or space flag for u, x, X, o, b
                 if ((state->specifier != 'i') && (state->specifier != 'd')) {
@@ -783,8 +780,6 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
             case 'g':
             case 'G':
 #if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
-                if ((state->specifier == 'E') || (state->specifier == 'G'))
-                    state->flags |= FMT_FLAG_UPPERCASE;
                 _etoa(state, va_arg(va, double), (state->specifier == 'g') || (state->specifier == 'G'));
 #else
                 for (int i = 0; i < 2; i++)
@@ -838,7 +833,8 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
 
             case 'p': {
                 state->width = sizeof(void *) * 2U;
-                state->flags |= FMT_FLAG_ZEROPAD | FMT_FLAG_UPPERCASE;
+                state->flags |= FMT_FLAG_ZEROPAD;
+                state->specifier = 'X';
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                 const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
                 if (is_ll) {
