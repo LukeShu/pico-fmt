@@ -1,0 +1,31 @@
+# Copyright (c) 2024-2025  Luke T. Shumaker
+# SPDX-License-Identifier: BSD-3-Clause
+
+function(_apply_matrix_helper _m_depth _m_assignments)
+    list(LENGTH _m_arg_matrix _m_dimensions)
+    math(EXPR _m_dimensions ${_m_dimensions}/2)
+    if("${_m_depth}" EQUAL "${_m_dimensions}")
+        cmake_language(CALL "${_m_arg_action}" "${_m_n}" "${_m_assignments}")
+        math(EXPR _m_n "${_m_n}+1")
+        set(_m_n "${_m_n}" PARENT_SCOPE)
+    else()
+        math(EXPR _m_ik "${_m_depth}*2")
+        list(GET _m_arg_matrix "${_m_ik}" _m_tmp_key)
+
+        math(EXPR _m_iv "${_m_ik}+1")
+        list(GET _m_arg_matrix "${_m_iv}" _m_tmp_vals)
+        string(REGEX REPLACE "^\\[(.*)\\]$" "\\1" _m_tmp_vals "${_m_tmp_vals}")
+
+        foreach(_m_tmp_val IN LISTS _m_tmp_vals)
+            math(EXPR _m_tmp_depth "${_m_depth}+1")
+            set(_m_tmp_assignments "${_m_assignments}")
+            list(APPEND _m_tmp_assignments "${_m_tmp_key}=${_m_tmp_val}")
+            _apply_matrix_helper("${_m_tmp_depth}" "${_m_tmp_assignments}")
+            set(_m_n "${_m_n}" PARENT_SCOPE)
+        endforeach()
+    endif()
+endfunction()
+function(apply_matrix _m_arg_action _m_arg_matrix)
+    set(_m_n 1)
+    _apply_matrix_helper(0 "")
+endfunction()

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 if (NOT TARGET pico_printf)
+    include("../build-aux/pico_sdk_functions.cmake")
+
     # internal #################################################################
 
     function(wrap_printf_functions TARGET)

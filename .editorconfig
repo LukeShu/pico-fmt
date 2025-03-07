@@ -1,0 +1,18 @@
+# Copyright (C) 2025  Luke T. Shumaker <lukeshu@lukeshu.com>
+# SPDX-License-Identifier: BSD-3-Clause
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[GNUmakefile]
+indent_style = tab
+
+[*.yml]
+indent_size = 2

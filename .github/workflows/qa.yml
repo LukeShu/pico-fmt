@@ -1,0 +1,23 @@
+# Copyright (c) 2025  Luke T. Shumaker
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Quality Assurance
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install Valgrind
+      run: sudo apt install -y valgrind
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - run: make
+
+    - run: make check

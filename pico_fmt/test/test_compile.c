@@ -7,7 +7,7 @@
 
 #include <pico/fmt_printf.h>
 
-int main() {
+int main(void) {
     printf("%p\n", fmt_fctprintf);
     printf("%p\n", fmt_vsnprintf);
     printf("%p\n", fmt_snprintf);
