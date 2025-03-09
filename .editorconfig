@@ -16,6 +16,3 @@ indent_style = tab
 
 [*.yml]
 indent_size = 2
-
-[pico_fmt/test/test_suite.cpp]
-indent_size = 2
