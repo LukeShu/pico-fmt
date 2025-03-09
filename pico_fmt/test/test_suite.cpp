@@ -43,52 +43,10 @@
 #include <sstream>
 #include <math.h>
 
+#include "pico/fmt_printf.h"
 
-namespace test {
-  // use functions in own test namespace to avoid stdio conflicts
-  #include "pico/fmt_printf.h"
-
-  // output: stdout
-  void _putchar(char character);
-  inline void _out_char(char character, void *arg)
-  {
-    (void) arg;
-    _putchar(character);
-  }
-  int vprintf(const char* format, va_list va)
-  {
-    return fmt_vfctprintf(_out_char, nullptr, format, va);
-  }
-  int printf(const char* format, ...)
-  {
-    va_list va;
-    va_start(va, format);
-    int ret = fmt_vfctprintf(_out_char, nullptr, format, va);
-    va_end(va);
-    return ret;
-  }
-
-  // output: [F]un[CT]ion
-  #define vfctprintf fmt_vfctprintf
-  #define fctprintf  fmt_fctprintf
-
-  // output: [S]tring
-  #define vsnprintf  fmt_vsnprintf
-  #define snprintf   fmt_snprintf
-  #define vsprintf   fmt_vsprintf
-  #define sprintf    fmt_sprintf
-
-} // namespace test
-
-
-// dummy putchar
 static char   printf_buffer[100];
 static size_t printf_idx = 0U;
-
-void fmt__putchar(char character)
-{
-  printf_buffer[printf_idx++] = character;
-}
 
 void _out_fct(char character, void* arg)
 {
@@ -96,6 +54,19 @@ void _out_fct(char character, void* arg)
   printf_buffer[printf_idx++] = character;
 }
 
+int fmt_vprintf(const char* format, va_list va)
+{
+  return fmt_vfctprintf(_out_fct, nullptr, format, va);
+}
+
+int fmt_printf(const char* format, ...)
+{
+  va_list va;
+  va_start(va, format);
+  int ret = fmt_vfctprintf(_out_fct, nullptr, format, va);
+  va_end(va);
+  return ret;
+}
 
 TEST_CASE("printf", "[]" ) {
   printf_idx = 0U;
