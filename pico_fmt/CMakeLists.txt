@@ -32,7 +32,7 @@ if (NOT TARGET pico_fmt)
             #"PICO_PRINTF_MAX_FLOAT;[1;1e9]"
         )
         function(pico_fmt_add_test n defs)
-            add_executable("test_suite_${n}" test/test_suite.cpp)
+            add_executable("test_suite_${n}" test/test_suite.c)
             target_link_libraries("test_suite_${n}" pico_fmt)
             target_compile_definitions("test_suite_${n}" PUBLIC "${defs}")
             add_test(

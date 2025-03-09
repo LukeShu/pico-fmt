@@ -35,10 +35,10 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#include <stdint.h>
-#include <string.h>
-#include <sstream>
 #include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "pico/fmt_printf.h"
 
@@ -53,14 +53,14 @@ void _out_fct(char character, void* arg)
 
 int fmt_vprintf(const char* format, va_list va)
 {
-    return fmt_vfctprintf(_out_fct, nullptr, format, va);
+    return fmt_vfctprintf(_out_fct, NULL, format, va);
 }
 
 int fmt_printf(const char* format, ...)
 {
     va_list va;
     va_start(va, format);
-    int ret = fmt_vfctprintf(_out_fct, nullptr, format, va);
+    int ret = fmt_vfctprintf(_out_fct, NULL, format, va);
     va_end(va);
     return ret;
 }
@@ -114,7 +114,7 @@ static void vsnprintf_builder_3(char* buffer, ...)
     va_end(args);
 }
 
-int main()
+int main(void)
 {
     const char *grp_name;
     unsigned int failures = 0;
@@ -134,7 +134,7 @@ int main()
     {
         printf_idx = 0U;
         memset(printf_buffer, 0xCC, 100U);
-        fmt_fctprintf(&_out_fct, nullptr, "This is a test of %X", 0x12EFU);
+        fmt_fctprintf(&_out_fct, NULL, "This is a test of %X", 0x12EFU);
         REQUIRE(!strncmp(printf_buffer, "This is a test of 12EF", 22U));
         REQUIRE(printf_buffer[22] == (char)0xCC);
     }
@@ -1147,6 +1147,7 @@ int main()
     TEST_CASE("float", "[]" );
     {
         char buffer[100];
+        char libc_buffer[100];
 
         // test special-case floats using math.h macros
         fmt_sprintf(buffer, "%8f", NAN);
@@ -1282,24 +1283,19 @@ int main()
         REQUIRE_STREQ(buffer, "");
 #endif
 
-        // brute force float
-        std::stringstream str;
-        str.precision(5);
+        // brute force our float against libc float
         for (float i = -100000; i < 100000; i += 1) {
             fmt_sprintf(buffer, "%.5f", i / 10000);
-            str.str("");
-            str << std::fixed << i / 10000;
-            REQUIRE_STREQ(buffer, str.str().c_str());
+            sprintf(libc_buffer, "%.5f", i / 10000);
+            REQUIRE_STREQ(buffer, libc_buffer);
         }
 
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
         // brute force exp
-        str.setf(std::ios::scientific, std::ios::floatfield);
         for (float i = -1e20; i < 1e20; i += 1e15) {
-            fmt_sprintf(buffer, "%.5f", i);
-            str.str("");
-            str << i;
-            REQUIRE_STREQ(buffer, str.str().c_str());
+            fmt_sprintf(buffer, "%.5e", i);
+            sprintf(libc_buffer, "%.5e", i);
+            REQUIRE_STREQ(buffer, libc_buffer);
         }
 #endif
     }
@@ -1514,9 +1510,9 @@ int main()
         char buffer[100];
         int ret;
 
-        ret = fmt_snprintf(nullptr, 10, "%s", "Test");
+        ret = fmt_snprintf(NULL, 10, "%s", "Test");
         REQUIRE(ret == 4);
-        ret = fmt_snprintf(nullptr, 0, "%s", "Test");
+        ret = fmt_snprintf(NULL, 0, "%s", "Test");
         REQUIRE(ret == 4);
 
         buffer[0] = (char)0xA5;
