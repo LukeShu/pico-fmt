@@ -550,7 +550,6 @@ static void _etoa(struct fmt_state *state, double value) {
 #endif // PICO_PRINTF_SUPPORT_FLOAT
 
 int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
-    unsigned int n;
     struct fmt_ctx _ctx = {
         .fct = fct,
         .arg = arg,
@@ -575,38 +574,33 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
 
         // evaluate flags
         state->flags = 0U;
-        do {
+        for (;;) {
             switch (*format) {
                 case '0':
                     state->flags |= FLAGS_ZEROPAD;
                     format++;
-                    n = 1U;
                     break;
                 case '-':
                     state->flags |= FLAGS_LEFT;
                     format++;
-                    n = 1U;
                     break;
                 case '+':
                     state->flags |= FLAGS_PLUS;
                     format++;
-                    n = 1U;
                     break;
                 case ' ':
                     state->flags |= FLAGS_SPACE;
                     format++;
-                    n = 1U;
                     break;
                 case '#':
                     state->flags |= FLAGS_HASH;
                     format++;
-                    n = 1U;
                     break;
                 default:
-                    n = 0U;
-                    break;
+                    goto no_more_flags;
             }
-        } while (n);
+        }
+    no_more_flags:
 
         // evaluate width field
         state->width = 0U;
