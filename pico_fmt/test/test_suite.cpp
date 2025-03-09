@@ -35,10 +35,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-// use the 'catch' test framework
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
-
+#include <stdint.h>
 #include <string.h>
 #include <sstream>
 #include <math.h>
@@ -68,6 +65,49 @@ int fmt_printf(const char* format, ...)
   return ret;
 }
 
+#define TEST_CASE(GRP_NAME, ...)                                                                                 \
+  do {                                                                                                           \
+    grp_name = GRP_NAME;                                                                                         \
+    printf("%.70s\n", "== " GRP_NAME " ======================================================================"); \
+  } while(0);
+#define REQUIRE(expr) _REQUIRE(expr, #expr)
+#define _REQUIRE(expr, expr_str)                                                                 \
+  do {                                                                                           \
+    if (!(expr)) {                                                                               \
+      printf("failure: %s:%u:%s: REQUIRE failed: %s\n", __FILE__, __LINE__, grp_name, expr_str); \
+      failures++;                                                                                \
+    }                                                                                            \
+  } while(0)
+
+static void vprintf_builder_1(char* buffer, ...)
+{
+  va_list args;
+  va_start(args, buffer);
+  fmt_vprintf("%d", args);
+  va_end(args);
+}
+
+static void vsnprintf_builder_1(char* buffer, ...)
+{
+  va_list args;
+  va_start(args, buffer);
+  fmt_vsnprintf(buffer, 100U, "%d", args);
+  va_end(args);
+}
+
+static void vsnprintf_builder_3(char* buffer, ...)
+{
+  va_list args;
+  va_start(args, buffer);
+  fmt_vsnprintf(buffer, 100U, "%d %d %s", args);
+  va_end(args);
+}
+
+int main()
+{
+  const char *grp_name;
+  unsigned int failures = 0;
+
 TEST_CASE("printf", "[]" ) {
   printf_idx = 0U;
   memset(printf_buffer, 0xCC, 100U);
@@ -96,31 +136,6 @@ TEST_CASE("snprintf", "[]" ) {
   fmt_snprintf(buffer, 3U, "%d", -1000);
   REQUIRE(!strcmp(buffer, "-1"));
 }
-
-static void vprintf_builder_1(char* buffer, ...)
-{
-  va_list args;
-  va_start(args, buffer);
-  fmt_vprintf("%d", args);
-  va_end(args);
-}
-
-static void vsnprintf_builder_1(char* buffer, ...)
-{
-  va_list args;
-  va_start(args, buffer);
-  fmt_vsnprintf(buffer, 100U, "%d", args);
-  va_end(args);
-}
-
-static void vsnprintf_builder_3(char* buffer, ...)
-{
-  va_list args;
-  va_start(args, buffer);
-  fmt_vsnprintf(buffer, 100U, "%d %d %s", args);
-  va_end(args);
-}
-
 
 TEST_CASE("vprintf", "[]" ) {
   char buffer[100];
@@ -1542,4 +1557,13 @@ TEST_CASE("misc", "[]" ) {
   fmt_sprintf(buffer, "%.*e", 2, 0.33333333);
   REQUIRE(!strcmp(buffer, "3.33e-01"));
 #endif
+}
+
+ if (failures) {
+     printf("%u failures\n", failures);
+     return 1;
+ } else {
+     printf("success!\n");
+     return 0;
+ }
 }

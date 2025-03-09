@@ -171,10 +171,5 @@ pico-fmt as a whole is subject to both the MIT license
 (`SPDX-License-Identifier: BSD-3-Clause`); see `LICENSE.txt` for the
 full text of each license.
 
-The test suite uses a "bundled" copy of the Catch2 test framework,
-which is subject to the Boost Software License, version 1.0
-(`SPDX-License-Identifier: BSL-1.0`).  See `LICENSE.test.txt` for the
-full text of that license.
-
 Each individual file has `SPDX-License-Identifier:` tags indicating
 precisely which license(s) that specific file is subject to.
