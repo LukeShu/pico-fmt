@@ -187,10 +187,14 @@ static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool ne
         if (state->width && (state->flags & FMT_FLAG_ZEROPAD) && (negative || (state->flags & (FMT_FLAG_PLUS | FMT_FLAG_SPACE)))) {
             state->width--;
         }
-        while ((len < state->precision) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        while (len < state->precision) {
+            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+                goto ntoa_exceeded;
             buf[len++] = '0';
         }
-        while ((state->flags & FMT_FLAG_ZEROPAD) && (len < state->width) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        while ((state->flags & FMT_FLAG_ZEROPAD) && (len < state->width)) {
+            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+                goto ntoa_exceeded;
             buf[len++] = '0';
         }
     }
@@ -203,27 +207,38 @@ static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool ne
                 len--;
             }
         }
-        if ((base == 16U) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        if (base == 16U) {
+            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+                goto ntoa_exceeded;
             buf[len++] = state->specifier;
-        } else if ((base == 2U) && (len < PICO_PRINTF_NTOA_BUFFER_SIZE)) {
+        } else if (base == 2U) {
+            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+                goto ntoa_exceeded;
             buf[len++] = 'b';
         }
-        if (len < PICO_PRINTF_NTOA_BUFFER_SIZE) {
-            buf[len++] = '0';
-        }
+        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+            goto ntoa_exceeded;
+        buf[len++] = '0';
     }
 
-    if (len < PICO_PRINTF_NTOA_BUFFER_SIZE) {
-        if (negative) {
-            buf[len++] = '-';
-        } else if (state->flags & FMT_FLAG_PLUS) {
-            buf[len++] = '+'; // ignore the space if the '+' exists
-        } else if (state->flags & FMT_FLAG_SPACE) {
-            buf[len++] = ' ';
-        }
+    if (negative) {
+        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+            goto ntoa_exceeded;
+        buf[len++] = '-';
+    } else if (state->flags & FMT_FLAG_PLUS) {
+        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+            goto ntoa_exceeded;
+        buf[len++] = '+'; // ignore the space if the '+' exists
+    } else if (state->flags & FMT_FLAG_SPACE) {
+        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
+            goto ntoa_exceeded;
+        buf[len++] = ' ';
     }
 
     _out_rev(state, buf, len);
+    return;
+ntoa_exceeded:
+    fmt_state_puts(state, "%!(exceeded PICO_PRINTF_NTOA_BUFFER_SIZE)");
 }
 
 #define _define_ntoa(TYP, SUF)                                                                                           \
@@ -240,6 +255,10 @@ static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool ne
         if (!(state->flags & FMT_FLAG_PRECISION) || value) {                                                             \
             do {                                                                                                         \
                 const char digit = (char) (value % base);                                                                \
+                if (len == PICO_PRINTF_NTOA_BUFFER_SIZE) {                                                               \
+                    fmt_state_puts(state, "%!(exceeded PICO_PRINTF_NTOA_BUFFER_SIZE)");                                  \
+                    return;                                                                                              \
+                }                                                                                                        \
                 buf[len++] = (char) (digit < 10 ? '0' + digit : (_is_upper(state->specifier) ? 'A' : 'a') + digit - 10); \
                 value /= base;                                                                                           \
             } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));                                                     \
@@ -310,7 +329,9 @@ static void _ftoa(struct fmt_state *state, double value) {
         state->precision = PICO_PRINTF_DEFAULT_FLOAT_PRECISION;
     }
     // limit precision, we don't want to overflow pow10[]
-    while ((len < PICO_PRINTF_FTOA_BUFFER_SIZE) && (state->precision >= array_len(pow10))) {
+    while (state->precision >= array_len(pow10)) {
+        if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+            goto ftoa_exceeded;
         buf[len++] = '0';
         state->precision--;
     }
@@ -343,25 +364,31 @@ static void _ftoa(struct fmt_state *state, double value) {
     } else {
         unsigned int count = state->precision;
         // now do fractional part, as an unsigned number
-        while (len < PICO_PRINTF_FTOA_BUFFER_SIZE) {
+        for (;;) {
             --count;
+            if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+                goto ftoa_exceeded;
             buf[len++] = (char) (48U + (frac % 10U));
             if (!(frac /= 10U)) {
                 break;
             }
         }
         // add extra 0s
-        while ((len < PICO_PRINTF_FTOA_BUFFER_SIZE) && (count-- > 0U)) {
+        while (count-- > 0U) {
+            if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+                goto ftoa_exceeded;
             buf[len++] = '0';
         }
-        if (len < PICO_PRINTF_FTOA_BUFFER_SIZE) {
-            // add decimal
-            buf[len++] = '.';
-        }
+        // add decimal
+        if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+            goto ftoa_exceeded;
+        buf[len++] = '.';
     }
 
     // do whole part, number is reversed
-    while (len < PICO_PRINTF_FTOA_BUFFER_SIZE) {
+    for (;;) {
+        if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+            goto ftoa_exceeded;
         buf[len++] = (char) (48 + (whole % 10));
         if (!(whole /= 10)) {
             break;
@@ -373,22 +400,31 @@ static void _ftoa(struct fmt_state *state, double value) {
         if (state->width && (negative || (state->flags & (FMT_FLAG_PLUS | FMT_FLAG_SPACE)))) {
             state->width--;
         }
-        while ((len < state->width) && (len < PICO_PRINTF_FTOA_BUFFER_SIZE)) {
+        while (len < state->width) {
+            if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+                goto ftoa_exceeded;
             buf[len++] = '0';
         }
     }
 
-    if (len < PICO_PRINTF_FTOA_BUFFER_SIZE) {
-        if (negative) {
-            buf[len++] = '-';
-        } else if (state->flags & FMT_FLAG_PLUS) {
-            buf[len++] = '+'; // ignore the space if the '+' exists
-        } else if (state->flags & FMT_FLAG_SPACE) {
-            buf[len++] = ' ';
-        }
+    if (negative) {
+        if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+            goto ftoa_exceeded;
+        buf[len++] = '-';
+    } else if (state->flags & FMT_FLAG_PLUS) {
+        if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+            goto ftoa_exceeded;
+        buf[len++] = '+'; // ignore the space if the '+' exists
+    } else if (state->flags & FMT_FLAG_SPACE) {
+        if (len == PICO_PRINTF_FTOA_BUFFER_SIZE)
+            goto ftoa_exceeded;
+        buf[len++] = ' ';
     }
 
     _out_rev(state, buf, len);
+    return;
+ftoa_exceeded:
+    fmt_state_puts(state, "%!(exceeded PICO_PRINTF_FTOA_BUFFER_SIZE)");
 }
 
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
@@ -518,9 +554,26 @@ static void _etoa(struct fmt_state *state, double value, bool adapt_exp) {
 #endif // PICO_PRINTF_SUPPORT_EXPONENTIAL
 #endif // PICO_PRINTF_SUPPORT_FLOAT
 
+inline static void _put_quoted_byte(struct fmt_state *state, unsigned char c) {
+    fmt_state_putchar(state, '\'');
+    if (' ' <= c && c <= '~') {
+        if (c == '\'' || c == '\\')
+            fmt_state_putchar(state, '\\');
+        fmt_state_putchar(state, c);
+    } else {
+        fmt_state_putchar(state, '\\');
+        fmt_state_putchar(state, 'x');
+        fmt_state_putchar(state, (c >> 4) & 0xF);
+        fmt_state_putchar(state, (c >> 0) & 0xF);
+    }
+    fmt_state_putchar(state, '\'');
+}
+
 static void conv_sint(struct fmt_state *state);
 static void conv_uint(struct fmt_state *state);
+#if PICO_PRINTF_SUPPORT_FLOAT
 static void conv_double(struct fmt_state *state);
+#endif
 static void conv_char(struct fmt_state *state);
 static void conv_str(struct fmt_state *state);
 static void conv_ptr(struct fmt_state *state);
@@ -536,12 +589,16 @@ static fmt_specifier_t specifier_table[0x7F] = {
     ['o'] = conv_uint,
     ['b'] = conv_uint,
 
+#if PICO_PRINTF_SUPPORT_FLOAT
     ['f'] = conv_double,
     ['F'] = conv_double,
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
     ['e'] = conv_double,
     ['E'] = conv_double,
     ['g'] = conv_double,
     ['G'] = conv_double,
+#endif
+#endif
 
     ['c'] = conv_char,
     ['s'] = conv_str,
@@ -679,7 +736,9 @@ static void _vfctprintf(struct _fmt_ctx *ctx, const char *format, va_list *va_sa
             specifier_table[(unsigned int) state->specifier]) {
             specifier_table[(unsigned int) state->specifier](state);
         } else {
-            fmt_state_putchar(state, state->specifier);
+            fmt_state_puts(state, "%!(unknown specifier=");
+            _put_quoted_byte(state, state->specifier);
+            fmt_state_putchar(state, ')');
         }
     }
 }
@@ -793,40 +852,33 @@ static void conv_uint(struct fmt_state *state) {
     }
 }
 
-static void conv_double(struct fmt_state *state) {
-    switch (state->specifier) {
 #if PICO_PRINTF_SUPPORT_FLOAT
+static void conv_double(struct fmt_state *state) {
+    double value = va_arg(*state->args, double);
+    switch (state->specifier) {
         case 'f':
-        case 'F': {
-            double value = va_arg(*state->args, double);
+        case 'F':
             // test for very large values
             // standard printf behavior is to print EVERY whole number digit -- which could be 100s of characters overflowing your buffers == bad
             if ((value > PICO_PRINTF_MAX_FLOAT && value < DBL_MAX) || (value < -PICO_PRINTF_MAX_FLOAT && value > -DBL_MAX)) {
-#if PICO_PRINTF_SUPPORT_EXPONENTIAL
-                _etoa(state, value, false);
-#endif
-                break;
+                fmt_state_puts(state, "%!(exceeded PICO_PRINTF_MAX_FLOAT)");
+                return;
             }
             _ftoa(state, value);
             break;
-        }
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
         case 'e':
         case 'E':
-            _etoa(state, va_arg(*state->args, double), false);
+            _etoa(state, value, false);
             break;
         case 'g':
         case 'G':
-            _etoa(state, va_arg(*state->args, double), true);
+            _etoa(state, value, true);
             break;
 #endif
-#endif
-        default:
-            for (int i = 0; i < 2; i++)
-                fmt_state_putchar(state, '?');
-            va_arg(*state->args, double);
     }
 }
+#endif
 
 static void conv_char(struct fmt_state *state) {
     unsigned int l = 1U;

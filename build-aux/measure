@@ -342,7 +342,6 @@ def measure_stack(prefix: str, elffile: str, objfiles: list[str], cifiles: list[
             return {"_out_fct", "_out_null"}
         elif re.search(r"\bspecifier_table\[", calltxt):
             callees = {
-                "conv_double",
                 "conv_char",
                 "conv_str",
                 "conv_ptr",
@@ -356,6 +355,10 @@ def measure_stack(prefix: str, elffile: str, objfiles: list[str], cifiles: list[
                 # Newer
                 callees.add("conv_sint")
                 callees.add("conv_uint")
+            if "conv_double" in final_syms:
+                # May be left out depending on configuration; was last
+                # always-present in pico-fmt/v0.2.0
+                callees.add("conv_double")
             return callees
         return None
 
