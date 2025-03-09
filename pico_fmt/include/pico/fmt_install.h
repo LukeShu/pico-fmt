@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-// For implementing your custom specifier //////////////////////////////////////
+// The interface your specifier must implement /////////////////////////////////
 
 #define FMT_FLAG_ZEROPAD   (1U << 0U) // '0'
 #define FMT_FLAG_LEFT      (1U << 1U) // '-'
@@ -56,14 +56,22 @@ void fmt_state_putchar(struct fmt_state *state, char character);
  */
 typedef void (*fmt_specifier_t)(struct fmt_state *);
 
+// Utilities for implementing the specifier ////////////////////////////////////
+
 void fmt_state_putchar(struct fmt_state *state, char character);
+void fmt_state_puts(struct fmt_state *state, const char *str); // no trailing newline
+void fmt_state_vprintf(struct fmt_state *state, const char *format, va_list va);
+void fmt_state_printf(struct fmt_state *state, const char *format, ...);
 
 /**
  * \brief How many characters have been fmt_state_putchar()ed so far.
+ *
+ * When nested with fmt_state_printf(), the length is counted from the
+ * beginning of the outermost printf.
  */
 size_t fmt_state_len(struct fmt_state *state);
 
-// For installing that function ////////////////////////////////////////////////
+// To install the specifier ////////////////////////////////////////////////////
 
 /**
  * Register `fn` to be called to handle `%character`.

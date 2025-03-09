@@ -112,6 +112,11 @@ inline void fmt_state_putchar(struct fmt_state *state, char character) {
     state->ctx->idx++;
 }
 
+inline void fmt_state_puts(struct fmt_state *state, const char *str) {
+    while (*str)
+        fmt_state_putchar(state, *(str++));
+}
+
 inline size_t fmt_state_len(struct fmt_state *state) {
     return state->ctx->idx;
 }
@@ -552,17 +557,10 @@ void fmt_install(char character, fmt_specifier_t fn) {
         specifier_table[idx] = fn;
 }
 
-int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
-    struct _fmt_ctx _ctx = {
-        .fct = fct,
-        .arg = arg,
-        .idx = 0,
-    };
-    va_list _va_save;
-    va_copy(_va_save, _va);
+static void _vfctprintf(struct _fmt_ctx *ctx, const char *format, va_list *va_save) {
     struct fmt_state _state = {
-        .args = &_va_save,
-        .ctx = &_ctx,
+        .args = va_save,
+        .ctx = ctx,
     };
     struct fmt_state *state = &_state;
 
@@ -684,9 +682,26 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
             fmt_state_putchar(state, state->specifier);
         }
     }
+}
 
+int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
+    struct _fmt_ctx _ctx = {
+        .fct = fct,
+        .arg = arg,
+        .idx = 0,
+    };
+    va_list _va_save;
+    va_copy(_va_save, _va);
+    _vfctprintf(&_ctx, format, &_va_save);
     va_end(_va_save);
-    return (int) fmt_state_len(state);
+    return (int) _ctx.idx;
+}
+
+void fmt_state_vprintf(struct fmt_state *state, const char *format, va_list _va) {
+    va_list _va_save;
+    va_copy(_va_save, _va);
+    _vfctprintf(state->ctx, format, &_va_save);
+    va_end(_va_save);
 }
 
 static void conv_sint(struct fmt_state *state) {

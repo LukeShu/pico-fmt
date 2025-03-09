@@ -7,6 +7,7 @@
 // Copyright (C) 2025  Luke T. Shumaker <lukeshu@lukeshu.com>
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include "pico/fmt_install.h"
 #include "pico/fmt_printf.h"
 
 // Outputs /////////////////////////////////////////////////////////////////////
@@ -66,4 +67,11 @@ int fmt_sprintf(char *buffer, const char *format, ...) {
     const int ret = fmt_vsprintf(buffer, format, va);
     va_end(va);
     return ret;
+}
+
+void fmt_state_printf(struct fmt_state *state, const char *format, ...) {
+    va_list va;
+    va_start(va, format);
+    fmt_state_vprintf(state, format, va);
+    va_end(va);
 }
