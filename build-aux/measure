@@ -1,0 +1,652 @@
+#!/usr/bin/env python3
+# Copyright (C) 2025  Luke T. Shumaker <lukeshu@lukeshu.com>
+# SPDX-License-Identifier: BSD-3-Clause
+
+import glob
+import os
+import os.path
+import re
+import subprocess
+import sys
+import tempfile
+import typing
+
+
+class SymbolFile(typing.NamedTuple):
+    file_name: str
+
+
+class SymbolTable(typing.NamedTuple):
+    table_name: str
+    table_size: int
+
+
+class Symbol(typing.NamedTuple):
+    num: int
+    value: int
+    size: int
+    type_: str
+    bind: str
+    vis: str
+    ndx: typing.Literal["UND", "ABS"] | int
+    name: str
+
+
+SymbolTableLine: typing.TypeAlias = SymbolFile | SymbolTable | Symbol
+
+
+def read_symbol_table(prefix: str, objfiles: list[str]) -> typing.Iterator[SymbolTableLine]:
+    r = subprocess.run(
+        [f"{prefix}readelf", "--wide", "--syms", "--", *objfiles],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for line in r.stdout.split("\n"):
+        if line == "":
+            pass
+        elif m := re.match(r"^File: (?P<name>.*)", line):
+            yield SymbolFile(file_name=m.group("name"))
+        elif m := re.match(
+            r"^Symbol table '(?P<name>.*)' contains (?P<size>[0-9]+) entries:$", line
+        ):
+            yield SymbolTable(table_name=m.group("name"), table_size=int(m.group("size")))
+        elif re.match(r"^\s*Num:\s+Value\s+Size\s+Type\s+Bind\s+Vis\s+Ndx\s+Name$", line):
+            pass
+        elif m := re.match(
+            r"""
+            ^\s*(?P<num>[0-9]+):
+            \s+(?P<value>[0-9a-f]+)
+            \s+(?P<size>[0-9]+)
+            \s+(?P<type>[A-Z]+)
+            \s+(?P<bind>[A-Z]+)
+            \s+(?P<vis>[A-Z]+)
+            \s+(?P<ndx>UND|ABS|[0-9]+)
+            \s+(?P<name>\S*)$
+        """,
+            line,
+            re.VERBOSE,
+        ):
+            yield Symbol(
+                num=int(m.group("num")),
+                value=int(m.group("value"), 16),
+                size=int(m.group("size")),
+                type_=m.group("type"),
+                bind=m.group("bind"),
+                vis=m.group("vis"),
+                ndx=(
+                    int(m.group("ndx"))
+                    if m.group("ndx").isnumeric()
+                    else typing.cast(typing.Literal["UND", "ABS"], m.group("ndx"))
+                ),
+                name=m.group("name"),
+            )
+        else:
+            raise ValueError(f"reading symbol table: could not parse line: {line!r}")
+
+
+def read_aliases(prefix: str, elffile: str, objfiles: list[str]) -> tuple[set[str], dict[str, str]]:
+    final_syms: set[str] = set()
+    for line in read_symbol_table(prefix, [elffile]):
+        if isinstance(line, Symbol) and line.type_ == "FUNC" and line.size:
+            assert line.name not in final_syms
+            final_syms.add(line.name)
+
+    ret: dict[str, str] = {}  # alias=>canonical
+    cur: dict[int, dict[int, set[str]]] = {}  # section=>addr=>names
+
+    def flush() -> None:
+        nonlocal ret
+        nonlocal cur
+        for sect in cur.values():
+            for grp in sect.values():
+                overlap = final_syms.intersection(grp)
+                if overlap:
+                    canonical = sorted(overlap)[0]
+                    for alias in grp - {canonical}:
+                        assert alias not in ret
+                        ret[alias] = canonical
+        cur.clear()
+
+    for line in read_symbol_table(prefix, objfiles):
+        match line:
+            case SymbolTable():
+                flush()
+            case Symbol():
+                if line.type_ == "FUNC" and isinstance(line.ndx, int):
+                    if line.ndx not in cur:
+                        cur[line.ndx] = {}
+                    if line.value not in cur[line.ndx]:
+                        cur[line.ndx][line.value] = set()
+                    cur[line.ndx][line.value].add(line.name)
+    flush()
+    return final_syms, ret
+
+
+# Callgraph Info function
+class CIFunc(typing.NamedTuple):
+    name: str
+    nstatic: int
+    calls: set[str]
+    missing: bool
+
+
+def read_disassembled_func(
+    prefix: str, filename: str, name: str, indirect_callees: typing.Callable[[str], set[str] | None]
+) -> tuple[CIFunc, typing.Collection[int]]:
+    r = subprocess.run(
+        [
+            f"{prefix}objdump",
+            "--source-comment",
+            f"--disassemble={name}",
+            "--disassemble-zeroes",
+            filename,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    stack_cur = 0
+    stack_max = 0
+    bug1_cur = 0
+    bug1_max = 0
+    bug2_cur = 0
+    bug2_max = 0
+    bug_seen_push = False
+    calls: set[str] = set()
+    arch: str = ""
+    found = False
+    last_source_line = ""
+    for line in r.stdout.split("\n"):
+        if line == "":
+            pass
+        elif m := re.match("^" + re.escape(filename) + r":\s+file format (?P<format>\S+)$", line):
+            arch = m.group("format")
+        elif line == "Disassembly of section .text:":
+            pass
+        elif m := re.match(r"^[0-9a-f]+ <\S+>:$", line):
+            found = True
+        elif line.startswith("# "):
+            last_source_line = line[2:]
+        elif m := re.match(r"^\s*[0-9a-f]+:\t[ 0-9a-f]*$", line):
+            pass
+        elif m := re.match(r"^\s*[0-9a-f]+:\t[ 0-9a-f]*\t(?P<asm>.*)", line):
+            assert arch
+            assert found
+            asm = m.group("asm").split("\t@", 1)[0]
+            toks = re.split(r"[\s,]+", asm)
+            match arch:
+                case "elf32-littlearm":
+                    match toks[0]:
+                        case "push":
+                            stack_cur += (len(toks) - 1) * 4
+                            bug1_cur += (len(toks) - 1) * 4
+                            bug2_cur += (len(toks) - 1) * 4
+                            bug_seen_push = True
+                        case "pop":
+                            if not set(toks).intersection({"{pc}", "{pc", "pc", "pc}"}):
+                                stack_cur -= (len(toks) - 1) * 4
+                                bug1_cur -= (len(toks) - 1) * 4
+                                bug2_cur -= (len(toks) - 1) * 4
+                        case "sub":
+                            if toks[-1].startswith("#"):
+                                if (len(toks) == 3 and toks[:2] == ["sub", "sp"]) or (
+                                    len(toks) == 4 and toks[:3] == ["sub", "sp", "sp"]
+                                ):
+                                    stack_cur += int(toks[-1][1:])
+                                    if bug_seen_push:
+                                        bug2_cur += int(toks[-1][1:])
+                        case "add":
+                            if toks[-1].startswith("#"):
+                                if (len(toks) == 3 and toks[:2] == ["add", "sp"]) or (
+                                    len(toks) == 4 and toks[:3] == ["add", "sp", "sp"]
+                                ):
+                                    stack_cur -= int(toks[-1][1:])
+                        case "blx":
+                            callees = indirect_callees(last_source_line)
+                            if callees is None:
+                                raise ValueError(f"Unknown callees: {asm!r}: {last_source_line!r}")
+                            for callee in callees:
+                                calls.add(callee)
+                        case _:
+                            if toks[0].startswith("b") and re.match(r"^<[^+]+>$", toks[-1]):
+                                calls.add(toks[-1][1:-1])
+                    assert stack_cur >= 0, f"disassembling {name!r}: line {asm!r} broke stack_cur"
+                    if stack_cur > stack_max:
+                        stack_max = stack_cur
+                    assert bug1_cur >= 0, f"disassembling {name!r}: line {asm!r} broke bug1_cur"
+                    if bug1_cur > bug1_max:
+                        bug1_max = bug1_cur
+                    if bug2_cur > bug2_max:
+                        bug2_max = bug2_cur
+                case _:
+                    raise ValueError(f"unknown architecture {arch!r}")
+        else:
+            raise ValueError(f"disassembling {name!r}: could not parse line: {line!r}")
+    if not found and name in {
+        "__aeabi_idiv",
+        "__aeabi_idivmod",
+        "__divsi3",
+    }:  # see 'gccbug_signed' below
+        return CIFunc(name=name, nstatic=0, calls=set(), missing=False), set()
+    assert found, f"function {name} is missing from disassembly"
+    return CIFunc(name=name, nstatic=stack_max, calls=calls, missing=False), {bug1_max, bug2_max}
+
+
+def read_ci(
+    cifiles: list[str],
+    aliases: dict[str, str],
+    indirect_callees: typing.Callable[[str], set[str] | None],
+) -> dict[str, CIFunc]:
+    graph: dict[str, CIFunc] = {}
+
+    def clean_name(title: str) -> str:
+        name = title.rsplit(":", 1)[-1]
+        while name in aliases:
+            name = aliases[name]
+        return name
+
+    for cifile in cifiles:
+        with open(cifile, "r") as fh:
+            for line in fh:
+                line = line.strip()
+                if m := re.match(r'^graph: { title: "[^"]+"$', line):
+                    pass
+                elif m := re.match(
+                    r'^node: { title: "(?P<title>[^"]+)" label: ".*\\n(?P<nstatic>[0-9]+) bytes \((?:static|dynamic,bounded)\)\\n0 dynamic objects" }$',
+                    line,
+                ):
+                    fn = CIFunc(
+                        name=clean_name(m.group("title")),
+                        nstatic=int(m.group("nstatic")),
+                        calls=set(),
+                        missing=False,
+                    )
+                    if fn.name not in graph:
+                        graph[fn.name] = fn
+                    elif graph[fn.name].missing:
+                        fn.calls.update(graph[fn.name].calls)
+                        graph[fn.name] = fn
+                    else:
+                        raise ValueError(f"duplicate node {fn.name!r}")
+                elif m := re.match(
+                    r'^node: { title: "__indirect_call" label: "Indirect Call Placeholder" shape : ellipse }$',
+                    line,
+                ):
+                    pass
+                elif m := re.match(
+                    r'^node: { title: "(?P<title>[^"]+)" label: "\1\\n<built-in>" shape : ellipse }$',
+                    line,
+                ):
+                    fn = CIFunc(
+                        name=clean_name(m.group("title")), nstatic=0, calls=set(), missing=True
+                    )
+                    if fn.name not in graph:
+                        graph[fn.name] = fn
+                elif m := re.match(
+                    r'^edge: { sourcename: "(?P<source>[^"]+)" targetname: "(?P<target>[^"]+)" label: "(?P<label>[^"]+)" }$',
+                    line,
+                ):
+                    source = clean_name(m.group("source"))
+                    target = clean_name(m.group("target"))
+                    assert source in graph
+                    if target == "__indirect_call":
+                        label = m.group("label")
+                        m = re.match(r"^(?P<filename>.*):(?P<row>[0-9]+):(?P<col>[0-9]+)$", label)
+                        assert m
+                        filename = m.group("filename")
+                        row = int(m.group("row")) - 1
+                        # col = int(m.group("col")) - 1
+                        with open(filename, "r") as fh:
+                            calltxt = fh.readlines()[row].strip()
+                        callees = indirect_callees(calltxt)
+                        if callees is None:
+                            raise ValueError(f"Unknown callees: {label}: {calltxt!r}")
+                        for callee in callees:
+                            graph[source].calls.add(callee)
+                    else:
+                        graph[source].calls.add(target)
+                elif m := re.match(
+                    r'^edge: { sourcename: "(?P<source>[^"]+)" targetname: "(?P<target>[^"]+)" }$',
+                    line,
+                ):
+                    source = clean_name(m.group("source"))
+                    target = clean_name(m.group("target"))
+                    assert source in graph
+                    graph[source].calls.add(target)
+                elif m := re.match(r"^}$", line):
+                    pass
+                else:
+                    raise ValueError(f"unknown line: {line!r}")
+
+    return graph
+
+
+def measure_stack(prefix: str, elffile: str, objfiles: list[str], cifiles: list[str]) -> int:
+    final_syms, aliases = read_aliases(prefix, elffile, objfiles)
+
+    def indirect_callees(calltxt: str) -> set[str] | None:
+        if "->fct(" in calltxt:
+            return set()
+        elif re.search(r"\bout\(", calltxt):
+            return {"_out_fct", "_out_null"}
+        return None
+
+    graph = read_ci(cifiles, aliases, indirect_callees)
+
+    errs: list[Exception] = []
+    checked: set[str] = set()
+
+    # Calculate and return
+    def nstatic(funcname: str, chain: list[str] = []) -> int:
+        if funcname not in graph or graph[funcname].missing:
+            graph[funcname], _ = read_disassembled_func(prefix, elffile, funcname, indirect_callees)
+            checked.add(funcname)
+        if funcname not in checked:
+            # Sanity check
+            ci_node = graph[funcname]
+            dis_node, _gccbug_nstatic = read_disassembled_func(
+                prefix, elffile, funcname, indirect_callees
+            )
+            try:
+                if dis_node.nstatic != ci_node.nstatic:
+                    msg = f"{funcname!r}: callgraph-info:{ci_node.nstatic} != disassembly:{dis_node.nstatic}"
+                    gccbug_nstatic = ci_node.nstatic in _gccbug_nstatic
+                    assert dis_node.nstatic == ci_node.nstatic or gccbug_nstatic, msg
+                    if gccbug_nstatic:
+                        graph[funcname] = dis_node
+            except Exception as e:
+                errs.append(e)
+            try:
+                if dis_node.calls != ci_node.calls:
+                    common = ci_node.calls.intersection(dis_node.calls)
+                    msg = (
+                        f"{funcname!r}: graph mismatch:"
+                        + f"\n\tcommon              : {sorted(common)}"
+                        + f"\n\tcallgraph-info-only : {sorted(ci_node.calls-common)}"
+                        + f"\n\tdisassembly-only    : {sorted(dis_node.calls-common)}"
+                    )
+                    # GCC sometimes emits callgraph-info that mentions these, even though they
+                    # clearly aren't in the assembly.  I think maybe a pass that runs after the
+                    # callgraph-info is emitted replaces signed division with unsigned division?
+                    #
+                    #    __aeabi_idiv => __aeabi_uidiv (aliased to __udivsi3)
+                    #    __aeabi_idivmod => aeabi_uidivmod
+                    #
+                    # &c.
+                    gccbug_signed = True
+                    for missing in ci_node.calls - common:
+                        rhs = missing.rsplit("_", 1)[-1]
+                        lhs = missing[: -len(rhs)]
+                        if lhs not in ["__", "__aeabi_"]:
+                            gccbug_signed = False
+                        unsigned = f"{lhs}u{rhs}"
+                        if unsigned in aliases:
+                            unsigned = aliases[unsigned]
+                        if unsigned not in common:
+                            gccbug_signed = False
+                    # IDK
+                    gccbug_x = False
+                    for missing in dis_node.calls - common:
+                        if missing != "__gnu_thumb1_case_shi":
+                            gccbug_x = False
+                    assert dis_node.calls == ci_node.calls or gccbug_signed or gccbug_x, msg
+                    if gccbug_signed or gccbug_x:
+                        graph[funcname] = dis_node
+            except Exception as e:
+                errs.append(e)
+            checked.add(funcname)
+        if funcname in chain:
+            cycles: list[tuple[list[str], str]] = [
+                (["_etoa", "_ftoa"], "_etoa"),
+            ]
+            for tail, kill in cycles:
+                if len(chain) >= len(tail) and chain[-len(tail) :] == tail and funcname == kill:
+                    return 0
+            if len(chain) > 20:
+                raise ValueError(f"cycle: {chain+[funcname]}")
+        node = graph[funcname]
+        if not node.calls:
+            return node.nstatic
+        return node.nstatic + max(nstatic(call, chain + [funcname]) for call in node.calls)
+
+    ret = nstatic("fmt_vfctprintf")
+    if errs:
+        for err in errs:
+            print(err, file=sys.stderr)
+        raise ValueError(f"{len(errs)} discrepancies")
+    return ret
+
+
+OneMeasurement: typing.TypeAlias = dict[str, int]  # section=>size
+
+
+def measure_one(prefix: str, srcfiles: typing.Collection[str], cflags: list[str]) -> OneMeasurement:
+    with tempfile.TemporaryDirectory(prefix="pico-fmt.") as tmpdir:
+        objfiles: list[str] = []
+        cifiles: list[str] = []
+
+        # Compile ####################################################
+        for srcfile in srcfiles:
+            objfile = os.path.join(tmpdir, os.path.basename(srcfile) + ".o")
+            cifile = os.path.join(tmpdir, os.path.basename(srcfile) + ".ci")
+            subprocess.run(
+                [
+                    f"{prefix}gcc",
+                    "-ffunction-sections",
+                    "-fdata-sections",
+                    "-fcallgraph-info=su,da",
+                    *cflags,
+                    "-c",
+                    "-o",
+                    objfile,
+                    srcfile,
+                ],
+                stderr=sys.stderr,
+                check=True,
+            )
+            objfiles.append(objfile)
+            cifiles.append(cifile)
+
+        # Gather #####################################################
+
+        r = subprocess.run(
+            [f"{prefix}gcc", *cflags, "-print-libgcc-file-name"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        objfiles.append(r.stdout.strip())
+
+        # Link #######################################################
+
+        elffile = os.path.join(tmpdir, "pico_fmt.elf")
+        subprocess.run(
+            [
+                f"{prefix}gcc",
+                "-Wl,--gc-sections",
+                "-nostdlib",
+                "-Wl,--defsym=_start=fmt_vfctprintf",
+                *cflags,
+                "-o",
+                elffile,
+                *objfiles,
+            ],
+            stderr=sys.stderr,
+            stdout=sys.stdout,
+            check=True,
+        )
+
+        # Analyze ####################################################
+
+        sections: dict[str, int] = {
+            "text": 0,
+            "rodata": 0,
+            "data": 0,
+            "bss": 0,
+            "max_stack": measure_stack(prefix, elffile, objfiles, cifiles),
+        }
+        r = subprocess.run(
+            [
+                f"{prefix}readelf",
+                "--wide",
+                "--sections",
+                elffile,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        for line in r.stdout.split("\n"):
+            _line = re.sub(r"^ *\[[ 0-9]+\] *", "", line)
+            if _line == line:
+                continue
+            fields = _line.split()
+            if len(fields) > 4 and fields[0] in (".text", ".rodata", ".data", ".bss"):
+                sections[fields[0][1:]] = int(fields[4], 16)
+
+        assert sections["data"] == 0
+        assert sections["bss"] == 0
+        del sections["data"]
+        del sections["bss"]
+
+        return sections
+
+
+cfgs = {
+    "mini ": ["PTRDIFF_T=0", "LONG_LONG=0", "FLOAT=0", "EXPONENTIAL=0"],
+    "ptr  ": ["PTRDIFF_T=1", "LONG_LONG=0", "FLOAT=0", "EXPONENTIAL=0"],
+    "ll   ": ["PTRDIFF_T=1", "LONG_LONG=1", "FLOAT=0", "EXPONENTIAL=0"],
+    "float": ["PTRDIFF_T=1", "LONG_LONG=1", "FLOAT=1", "EXPONENTIAL=0"],
+    "exp  ": ["PTRDIFF_T=1", "LONG_LONG=1", "FLOAT=1", "EXPONENTIAL=1"],
+}
+
+RowMeasurement: typing.TypeAlias = dict[str, list[int]]  # section=>[incr_sizes]
+
+
+def measure_row(prefix: str, srcfiles: typing.Collection[str], cflags: list[str]) -> RowMeasurement:
+    global cfgs
+    ret: dict[str, list[int]] = {}
+    for cfg in cfgs.values():
+        m = measure_one(prefix, srcfiles, cflags + ["-DPICO_PRINTF_SUPPORT_" + x for x in cfg])
+        if not ret:
+            for k in m:
+                ret[k] = []
+        for k, v in m.items():
+            ret[k].append(v - sum(ret[k]))
+    return ret
+
+
+def render_table(data: dict[str, RowMeasurement]) -> str:
+    cols: list[str] = []
+    for rowdata in data.values():
+        for colname in rowdata:
+            cols.append(colname)
+        break
+    subcolwidths: list[list[int]] = [
+        [len(cfgname.strip()) for cfgname in cfgs] + [len("tot")] for col in cols
+    ]
+    for rowdata in data.values():
+        for colnum, colvals in enumerate(rowdata.values()):
+            for subcolnum, colval in enumerate(colvals):
+                if len(str(colval)) > subcolwidths[colnum][subcolnum]:
+                    subcolwidths[colnum][subcolnum] = len(str(colval))
+            tot = sum(colvals)
+            if len(str(tot)) > subcolwidths[colnum][-1]:
+                subcolwidths[colnum][-1] = len(str(tot))
+    colwidths: list[int] = [sum(subwidths) + (len(subwidths) - 1) * 3 for subwidths in subcolwidths]
+    namewidth = max(len(rowname) for rowname in data)
+    ret = f"| {'':<{namewidth}} |"
+    for i, colname in enumerate(cols):
+        ret += f" {colname:^{colwidths[i]}} |"
+    ret += "\n"
+
+    ret += f"|-{'-'*namewidth}-|-{'-|-'.join('-'*w for w in colwidths)}-|\n"
+
+    def render_cell(colnum: int, vals: list[typing.Any]) -> str:
+        parts: list[str] = []
+        for subcolnum, val in enumerate(vals):
+            parts.append(str(val).strip().rjust(subcolwidths[colnum][subcolnum]))
+        return f" {' + '.join(parts[:-1])} = {parts[-1]} |"
+
+    ret += f"| {'':<{namewidth}} |"
+    for colnum in range(len(cols)):
+        ret += render_cell(colnum, [*cfgs.keys(), "tot"])
+    ret += "\n"
+
+    ret += f"|-{'-'*namewidth}-|-{'-|-'.join('-'*w for w in colwidths)}-|\n"
+
+    for rowname, rowdata in data.items():
+        ret += f"| {rowname:<{namewidth}} |"
+        for colnum, colvals in enumerate(rowdata.values()):
+            ret += render_cell(colnum, colvals + [sum(colvals)])
+        ret += "\n"
+
+    return ret
+
+
+def main() -> None:
+    prefix = "arm-none-eabi-"
+    gcc_version = subprocess.run(
+        [f"{prefix}gcc", "--version"], check=True, capture_output=True, text=True
+    ).stdout.split("\n")[0]
+
+    build_types = {
+        "Debug": ["-mcpu=cortex-m0plus", "-mthumb", "-g", "-Og"],
+        "Release": ["-mcpu=cortex-m0plus", "-mthumb", "-g", "-O3", "-DNDEBUG"],
+        "MinSizeRel": ["-mcpu=cortex-m0plus", "-mthumb", "-g", "-Os", "-DNDEBUG"],
+    }
+
+    versions: list[tuple[str, str, set[str]]] = [
+        (
+            "pico-sdk 2.1.1",
+            "pico-fmt/v0.0.1",
+            {"pico_fmt/printf.c", "pico_fmt/include/pico/fmt_printf.h"},
+        ),
+        ("pico-fmt Git-main", "HEAD", {"pico_fmt/printf.c", "pico_fmt/include/pico/fmt_printf.h"}),
+    ]
+
+    tables: dict[str, dict[str, RowMeasurement]] = {}
+    for build_type in build_types:
+        tables[build_type] = {}
+
+    for title, gitrev, srcfiles in versions:
+        with tempfile.TemporaryDirectory(prefix="pico-fmt.") as tmpdir:
+            outsrcfiles: set[str] = set()
+            for gitfilename in srcfiles:
+                if gitrev == "HEAD":
+                    with open(gitfilename, "r") as fh:
+                        content = fh.read()
+                else:
+                    content = subprocess.run(
+                        [
+                            "git",
+                            "cat-file",
+                            "blob",
+                            f"{gitrev}:{gitfilename}",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout
+                outfilename = os.path.join(tmpdir, gitfilename)
+                if not outfilename.endswith(".h"):
+                    outsrcfiles.add(outfilename)
+                os.makedirs(os.path.dirname(outfilename), exist_ok=True)
+                with open(outfilename, "w") as fh:
+                    fh.write(content)
+            for build_type, cflags in build_types.items():
+                tables[build_type][f"{title} {build_type}"] = measure_row(
+                    prefix, outsrcfiles, [f"-I{tmpdir}/pico_fmt/include", *cflags]
+                )
+
+    print(f"With {prefix}gcc version `{gcc_version}`:")
+    for build_type in build_types:
+        print()
+        print(f"  {build_type} = `{' '.join(build_types[build_type])}`:")
+        for line in render_table(tables[build_type]).rstrip().split("\n"):
+            print(f"  {line}")
+
+
+if __name__ == "__main__":
+    main()
