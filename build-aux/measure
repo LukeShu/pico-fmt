@@ -146,13 +146,24 @@ def read_disassembled_func(
         capture_output=True,
         text=True,
     )
+
+    # generic
     stack_cur = 0
     stack_max = 0
+
+    # arm
     bug1_cur = 0
     bug1_max = 0
     bug2_cur = 0
     bug2_max = 0
     bug_seen_push = False
+
+    # x86
+    x86rbp = 0
+    x86rsp_cur = 0
+    x86rsp_max = 0
+
+    # generic
     calls: set[str] = set()
     arch: str = ""
     found = False
@@ -176,6 +187,33 @@ def read_disassembled_func(
             asm = m.group("asm").split("\t@", 1)[0]
             toks = re.split(r"[\s,]+", asm)
             match arch:
+                case "elf64-x86-64":
+                    match toks[0]:
+                        case "push":
+                            assert len(toks) == 2
+                            x86rsp_cur += 8
+                        case "call":
+                            # assert (x86rsp_cur - x86rbp) % 16 == 0, f"{name}: rbp={x86rbp} rsp={x86rsp_cur}"
+                            x86rsp_max = max(x86rsp_max, x86rsp_cur + 8)
+                            if len(toks) == 3 and re.match(r"^<[^+]+>$", toks[2]):
+                                calls.add(toks[2][1:-1])
+                        case "sub" | "add":
+                            if m := re.match(r"^(sub|add)\s+\$0x(?P<size>[0-9a-f]+),%rsp$", asm):
+                                size = int(m.group("size"), 16)
+                                if size & (1 << 63):
+                                    size = size - (1 << 64)
+                                if toks[0] == "sub":
+                                    x86rsp_cur += size
+                                else:
+                                    x86rsp_cur -= size
+                        case "mov":
+                            if toks == ["mov", "%rsp", "%rbp"]:
+                                x86rbp = x86rsp_cur
+                    if x86rsp_cur > x86rsp_max:
+                        x86rsp_max = x86rsp_cur
+                    assert x86rbp >= 0
+                    assert x86rsp_cur >= 0
+                    assert x86rsp_max >= 0
                 case "elf32-littlearm":
                     match toks[0]:
                         case "push":
@@ -230,6 +268,11 @@ def read_disassembled_func(
     }:  # see 'gccbug_signed' below
         return CIFunc(name=name, nstatic=0, calls=set(), missing=False), set()
     assert found, f"function {name} is missing from disassembly"
+    match arch:
+        case "elf64-x86-64":
+            # if (x86rsp_max - x86rbp) % 16:
+            #    x86rsp_max += 16 - ((x86rsp_max - x86rbp) % 16)
+            stack_max = x86rsp_max
     return CIFunc(name=name, nstatic=stack_max, calls=calls, missing=False), {bug1_max, bug2_max}
 
 
