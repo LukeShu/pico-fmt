@@ -45,6 +45,11 @@ Compared to pico-sdk's version, pico-fmt is:
 
       Error message strings always start with `%!(` and end with `)`.
 
+    + No need to worry about overflowing
+      `PICO_PRINTF_NTOA_BUFFER_SIZE` or configuring that value;
+      pico-fmt does not use a buffer for rendering integers, and can
+      handle integers of arbitrary rendered width.
+
  - **More featureful:**
 
     + New specifier characters (`%x`) may be registered with the
@@ -186,7 +191,7 @@ With arm-none-eabi-gcc version `arm-none-eabi-gcc (Arch Repository) 14.2.0`:
   | pico-sdk 2.1.1 Debug    | 2288 +   8 + 916 +  4552 + 3868 = 11632 |  336 +  76 +  0 +   108 +   0 = 520 |    0 +   0 +  0 +     0 +   0 =   0 |  320 +   0 + 48 +     0 + 208 = 576 |
   | pico-fmt 0.2 Debug      | 1972 +  12 + 720 +  4560 + 3760 = 11024 |  208 +  76 + 40 +   108 +   0 = 432 |  508 +   0 +  0 +     0 +   0 = 508 |  192 +   0 + 76 +     0 + 116 = 384 |
   | pico-fmt 0.3 Debug      | 2064 +  16 + 736 +  4660 + 3764 = 11240 |  268 +  76 + 40 +   184 + 144 = 712 |  508 +   0 +  0 +     0 +   0 = 508 |  208 +   0 + 68 +     0 + 124 = 400 |
-  | pico-fmt Git-main Debug | 2064 +  16 + 736 +  4660 + 3764 = 11240 |  268 +  76 + 40 +   184 + 144 = 712 |  508 +   0 +  0 +     0 +   0 = 508 |  208 +   0 + 68 +     0 + 124 = 400 |
+  | pico-fmt Git-main Debug | 2204 +  16 + 844 +  4756 + 3764 = 11584 |  224 +  76 + 40 +   188 + 136 = 664 |  508 +   0 +  0 +     0 +   0 = 508 |  168 +   0 + 68 +    28 + 136 = 400 |
 
   Release = `-mcpu=cortex-m0plus -mthumb -g -O3 -DNDEBUG`:
   |                           |                   text                   |               rodata                |                data                 |              max_stack              |
@@ -196,7 +201,7 @@ With arm-none-eabi-gcc version `arm-none-eabi-gcc (Arch Repository) 14.2.0`:
   | pico-sdk 2.1.1 Release    | 3440 +  64 +  756 +  4852 + 4236 = 13348 |  336 +  76 +  0 +   108 +   0 = 520 |    0 +   0 +  0 +     0 +   0 =   0 |  228 +   8 + 48 +    36 + 336 = 656 |
   | pico-fmt 0.2 Release      | 2936 +  20 +  988 +  5028 + 4892 = 13864 |  208 +  76 + 40 +   108 +   0 = 432 |  508 +   0 +  0 +     0 +   0 = 508 |  188 +   0 + 48 +     0 + 204 = 440 |
   | pico-fmt 0.3 Release      | 3000 + -56 + 1324 +  5156 + 4956 = 14380 |  268 +  76 + 40 +   192 + 136 = 712 |  508 +   0 +  0 +     0 +   0 = 508 |  204 +  -8 + 64 +     0 + 196 = 456 |
-  | pico-fmt Git-main Release | 3000 + -56 + 1324 +  5156 + 4956 = 14380 |  268 +  76 + 40 +   192 + 136 = 712 |  508 +   0 +  0 +     0 +   0 = 508 |  204 +  -8 + 64 +     0 + 196 = 456 |
+  | pico-fmt Git-main Release | 3532 + -56 +  916 +  5412 + 4888 = 14692 |  224 +  76 + 40 +   188 + 136 = 664 |  508 +   0 +  0 +     0 +   0 = 508 |  172 +  -8 + 88 +     4 + 160 = 416 |
 
   MinSizeRel = `-mcpu=cortex-m0plus -mthumb -g -Os -DNDEBUG`:
   |                              |                  text                   |               rodata                |                data                 |              max_stack               |
@@ -206,7 +211,7 @@ With arm-none-eabi-gcc version `arm-none-eabi-gcc (Arch Repository) 14.2.0`:
   | pico-sdk 2.1.1 MinSizeRel    | 1832 +   4 + 740 +  4532 + 3796 = 10904 |    0 +   0 +  0 +   104 +   0 = 104 |    0 +   0 +  0 +     0 +   0 =   0 |  220 +   0 + 128 +    76 + 160 = 584 |
   | pico-fmt 0.2 MinSizeRel      | 1648 +   8 + 668 +  4500 + 3704 = 10528 |    0 +   0 +  0 +   104 +   0 = 104 |  508 +   0 +  0 +     0 +   0 = 508 |  164 +   0 +  96 +     0 + 116 = 376 |
   | pico-fmt 0.3 MinSizeRel      | 1720 +   8 + 688 +  4544 + 3724 = 10684 |   64 +   0 +  0 +   176 +   0 = 240 |  508 +   0 +  0 +     0 +   0 = 508 |  184 +   0 +  84 +     0 + 124 = 392 |
-  | pico-fmt Git-main MinSizeRel | 1720 +   8 + 688 +  4544 + 3724 = 10684 |   64 +   0 +  0 +   176 +   0 = 240 |  508 +   0 +  0 +     0 +   0 = 508 |  184 +   0 +  84 +     0 + 124 = 392 |
+  | pico-fmt Git-main MinSizeRel | 1744 +   8 + 832 +  4628 + 3724 = 10936 |   22 +   0 +  0 +   178 +   0 = 200 |  508 +   0 +  0 +     0 +   0 = 508 |  156 +   0 +  80 +    12 + 144 = 392 |
 <!-- END ./build-aux/measure output -->
 
 These measurements are for the printf code compiled stand-alone
