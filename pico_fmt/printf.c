@@ -91,6 +91,11 @@
 #define PICO_PRINTF_SUPPORT_PTRDIFF_T 1
 #endif
 
+// import float.h for DBL_MAX
+#if PICO_PRINTF_SUPPORT_FLOAT
+#include <float.h>
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 
 // internal flag definitions
@@ -105,13 +110,6 @@
 #define FLAGS_LONG      (1U << 8U)
 #define FLAGS_LONG_LONG (1U << 9U)
 #define FLAGS_PRECISION (1U << 10U)
-
-// import float.h for DBL_MAX
-#if PICO_PRINTF_SUPPORT_FLOAT
-
-#include <float.h>
-
-#endif
 
 struct fmt_ctx {
     fmt_fct_t fct;
