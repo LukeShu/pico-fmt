@@ -12,12 +12,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Install Valgrind
-      run: sudo apt install -y valgrind
+    - name: Install dev tools
+      run: sudo apt install -y valgrind mypy black isort
 
     - name: Checkout repo
       uses: actions/checkout@v4
 
     - run: make
+
+    - run: make lint
 
     - run: make check

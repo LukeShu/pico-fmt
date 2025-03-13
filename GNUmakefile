@@ -40,3 +40,29 @@ build: build/Makefile
 check: build
 	$(MAKE) -C build test
 .PHONY: check
+
+################################################################################
+
+sources_py3 = build-aux/measure
+
+lint:
+	mypy --strict --scripts-are-modules $(sources_py3)
+	black --line-length 100 --check $(sources_py3)
+	isort --check $(sources_py3)
+.PHONY: lint
+
+format:
+	black --line-length 100 $(sources_py3)
+	isort $(sources_py3)
+.PHONY: format
+
+################################################################################
+
+update-readme:
+	{ \
+	  sed '/<!-- BEGIN \.\/build-aux\/measure output -->/q;' README.md && \
+	  ./build-aux/measure && \
+	  sed -n '/<!-- END \.\/build-aux\/measure output -->/,$$p;' README.md && \
+	:; } > README.md.new
+	mv README.md.new README.md
+.PHONY: update-readme
