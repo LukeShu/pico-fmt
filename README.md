@@ -146,7 +146,7 @@ With arm-none-eabi-gcc version `arm-none-eabi-gcc (Arch Repository) 14.2.0`:
   |                         | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp = tot | mini + ptr + ll + float + exp = tot |
   |-------------------------|-----------------------------------------|-------------------------------------|-------------------------------------|
   | pico-sdk 2.1.1 Debug    | 2288 +   8 + 916 +  4552 + 3868 = 11632 |  336 +  76 +  0 +   108 +   0 = 520 |  320 +   0 + 48 +     0 + 208 = 576 |
-  | pico-fmt Git-main Debug | 1948 +  28 + 740 +  4564 + 3740 = 11020 |  336 +  76 +  0 +   108 +   0 = 520 |  176 +   0 + 84 +    -4 + 120 = 376 |
+  | pico-fmt Git-main Debug | 1948 +  28 + 736 +  4564 + 3740 = 11016 |  336 +  76 +  0 +   108 +   0 = 520 |  176 +   0 + 84 +    -8 + 116 = 368 |
 
   Release = `-mcpu=cortex-m0plus -mthumb -g -O3 -DNDEBUG`:
   |                           |                   text                   |               rodata                |              max_stack              |
@@ -162,7 +162,7 @@ With arm-none-eabi-gcc version `arm-none-eabi-gcc (Arch Repository) 14.2.0`:
   |                              | mini + ptr +  ll + float +  exp =   tot | mini + ptr + ll + float + exp = tot | mini + ptr +  ll + float + exp = tot |
   |------------------------------|-----------------------------------------|-------------------------------------|--------------------------------------|
   | pico-sdk 2.1.1 MinSizeRel    | 1832 +   4 + 740 +  4532 + 3796 = 10904 |    0 +   0 +  0 +   104 +   0 = 104 |  220 +   0 + 128 +    76 + 160 = 584 |
-  | pico-fmt Git-main MinSizeRel | 1856 +   4 + 692 +  4564 + 3668 = 10784 |    0 +   0 +  0 +   104 +   0 = 104 |  188 +   0 + 104 +    48 +  60 = 400 |
+  | pico-fmt Git-main MinSizeRel | 1856 +   4 + 680 +  4564 + 3664 = 10768 |    0 +   0 +  0 +   104 +   0 = 104 |  188 +   0 +  88 +    48 +  68 = 392 |
 <!-- END ./build-aux/measure output -->
 
 These measurements are for the printf code compiled stand-alone

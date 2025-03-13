@@ -236,53 +236,43 @@ static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool ne
     _out_rev(state, buf, len);
 }
 
-// internal itoa for 'long' type
-static void _ntoa_long(struct fmt_state *state, unsigned long value, bool negative, unsigned long base) {
-    char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];
-    size_t len = 0U;
-
-    // no hash for 0 values
-    if (!value) {
-        state->flags &= ~FLAGS_HASH;
+#define _define_ntoa(TYP, SUF)                                                                                              \
+    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP value, bool negative, unsigned int base) {                 \
+        char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];                                                                             \
+        size_t len = 0U;                                                                                                    \
+                                                                                                                            \
+        /* no hash for 0 values */                                                                                          \
+        if (!value) {                                                                                                       \
+            state->flags &= ~FLAGS_HASH;                                                                                    \
+        }                                                                                                                   \
+                                                                                                                            \
+        /* write if precision != 0 and value is != 0 */                                                                     \
+        if (!(state->flags & FLAGS_PRECISION) || value) {                                                                   \
+            do {                                                                                                            \
+                const char digit = (char) (value % base);                                                                   \
+                buf[len++] = (char) (digit < 10 ? '0' + digit : (state->flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10); \
+                value /= base;                                                                                              \
+            } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));                                                        \
+        }                                                                                                                   \
+                                                                                                                            \
+        _ntoa_format(state, buf, len, negative, base);                                                                      \
     }
 
-    // write if precision != 0 and value is != 0
-    if (!(state->flags & FLAGS_PRECISION) || value) {
-        do {
-            const char digit = (char) (value % base);
-            buf[len++] = (char) (digit < 10 ? '0' + digit : (state->flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10);
-            value /= base;
-        } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));
-    }
+_define_ntoa(int, );
 
-    _ntoa_format(state, buf, len, negative, (unsigned int) base);
-}
+#if __SIZEOF_LONG__ == __SIZEOF_INT__
+#define _ntoal _ntoa
+#else
+_define_ntoa(long, l);
+#endif
 
-// internal itoa for 'long long' type
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-
-static void _ntoa_long_long(struct fmt_state *state, unsigned long long value, bool negative, unsigned long long base) {
-    char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];
-    size_t len = 0U;
-
-    // no hash for 0 values
-    if (!value) {
-        state->flags &= ~FLAGS_HASH;
-    }
-
-    // write if precision != 0 and value is != 0
-    if (!(state->flags & FLAGS_PRECISION) || value) {
-        do {
-            const char digit = (char) (value % base);
-            buf[len++] = (char) (digit < 10 ? '0' + digit : (state->flags & FLAGS_UPPERCASE ? 'A' : 'a') + digit - 10);
-            value /= base;
-        } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));
-    }
-
-    _ntoa_format(state, buf, len, negative, (unsigned int) base);
-}
-
-#endif // PICO_PRINTF_SUPPORT_LONG_LONG
+#if __SIZEOF_LONG_LONG__ == __SIZEOF_LONG__
+#define _ntoall _ntoal
+#else
+_define_ntoa(long long, ll);
+#endif
+#endif
 
 #if PICO_PRINTF_SUPPORT_FLOAT
 
@@ -527,7 +517,7 @@ static void _etoa(struct fmt_state *state, double value, bool adapt_exp) {
             .specifier = 'd',
             .ctx = state->ctx,
         };
-        _ntoa_long(&substate, (unsigned int) ((expval < 0) ? -expval : expval), expval < 0, 10);
+        _ntoa(&substate, (unsigned int) ((expval < 0) ? -expval : expval), expval < 0, 10);
         // might need to right-pad spaces
         if (state->flags & FLAGS_LEFT) {
             while (fmt_state_len(state) - start_idx < state->width)
@@ -701,33 +691,33 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
                     if (state->flags & FLAGS_LONG_LONG) {
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                         const long long value = va_arg(va, long long);
-                        _ntoa_long_long(state,
-                                        (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
+                        _ntoall(state,
+                                (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
 #endif
                     } else if (state->flags & FLAGS_LONG) {
                         const long value = va_arg(va, long);
-                        _ntoa_long(state, (unsigned long) (value > 0 ? value : 0 - value),
-                                   value < 0, base);
+                        _ntoal(state, (unsigned long) (value > 0 ? value : 0 - value),
+                               value < 0, base);
                     } else {
                         const int value = (state->flags & FLAGS_CHAR)    ? (char) va_arg(va, int)
                                           : (state->flags & FLAGS_SHORT) ? (short int) va_arg(va, int)
                                                                          : va_arg(va, int);
-                        _ntoa_long(state, (unsigned int) (value > 0 ? value : 0 - value),
-                                   value < 0, base);
+                        _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value),
+                              value < 0, base);
                     }
                 } else {
                     // unsigned
                     if (state->flags & FLAGS_LONG_LONG) {
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-                        _ntoa_long_long(state, va_arg(va, unsigned long long), false, base);
+                        _ntoall(state, va_arg(va, unsigned long long), false, base);
 #endif
                     } else if (state->flags & FLAGS_LONG) {
-                        _ntoa_long(state, va_arg(va, unsigned long), false, base);
+                        _ntoal(state, va_arg(va, unsigned long), false, base);
                     } else {
                         const unsigned int value = (state->flags & FLAGS_CHAR)    ? (unsigned char) va_arg(va, unsigned int)
                                                    : (state->flags & FLAGS_SHORT) ? (unsigned short int) va_arg(va, unsigned int)
                                                                                   : va_arg(va, unsigned int);
-                        _ntoa_long(state, value, false, base);
+                        _ntoa(state, value, false, base);
                     }
                 }
                 break;
@@ -816,10 +806,10 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                 const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
                 if (is_ll) {
-                    _ntoa_long_long(state, (uintptr_t) va_arg(va, void *), false, 16U);
+                    _ntoall(state, (uintptr_t) va_arg(va, void *), false, 16U);
                 } else {
 #endif
-                    _ntoa_long(state, (unsigned long) ((uintptr_t) va_arg(va, void *)), false, 16U);
+                    _ntoal(state, (unsigned long) ((uintptr_t) va_arg(va, void *)), false, 16U);
 #if PICO_PRINTF_SUPPORT_LONG_LONG
                 }
 #endif
