@@ -99,12 +99,12 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // internal flag definitions
-#define FMT_FLAG_ZEROPAD   (1U << 0U)  // '0'
-#define FMT_FLAG_LEFT      (1U << 1U)  // '-'
-#define FMT_FLAG_PLUS      (1U << 2U)  // '+'
-#define FMT_FLAG_SPACE     (1U << 3U)  // ' '
-#define FMT_FLAG_HASH      (1U << 4U)  // '#'
-#define FMT_FLAG_PRECISION (1U << 10U) // state->precision is set
+#define FMT_FLAG_ZEROPAD   (1U << 0U) // '0'
+#define FMT_FLAG_LEFT      (1U << 1U) // '-'
+#define FMT_FLAG_PLUS      (1U << 2U) // '+'
+#define FMT_FLAG_SPACE     (1U << 3U) // ' '
+#define FMT_FLAG_HASH      (1U << 4U) // '#'
+#define FMT_FLAG_PRECISION (1U << 5U) // state->precision is set
 
 enum fmt_size {
     FMT_SIZE_CHAR,      // "hh"
@@ -122,7 +122,7 @@ struct fmt_ctx {
 
 struct fmt_state {
     // %[flags][width][.precision][size]specifier
-    unsigned int flags;
+    unsigned char flags;
     unsigned int width;
     unsigned int precision;
     enum fmt_size size;
