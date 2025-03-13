@@ -1,0 +1,9 @@
+---
+Language: Cpp # "C" didn't become a value until clang 20; I'm still on clang 19
+BasedOnStyle: LLVM
+IndentWidth: 4
+UseTab: Never
+SpaceAfterCStyleCast: true
+AlignConsecutiveMacros: true
+IndentCaseLabels: true
+ColumnLimit: 0

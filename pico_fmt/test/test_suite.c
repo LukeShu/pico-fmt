@@ -42,22 +42,19 @@
 
 #include "pico/fmt_printf.h"
 
-static char   printf_buffer[100];
+static char printf_buffer[100];
 static size_t printf_idx = 0U;
 
-void _out_fct(char character, void* arg)
-{
-    (void)arg;
+void _out_fct(char character, void *arg) {
+    (void) arg;
     printf_buffer[printf_idx++] = character;
 }
 
-int fmt_vprintf(const char* format, va_list va)
-{
+int fmt_vprintf(const char *format, va_list va) {
     return fmt_vfctprintf(_out_fct, NULL, format, va);
 }
 
-int fmt_printf(const char* format, ...)
-{
+int fmt_printf(const char *format, ...) {
     va_list va;
     va_start(va, format);
     int ret = fmt_vfctprintf(_out_fct, NULL, format, va);
@@ -69,7 +66,7 @@ int fmt_printf(const char* format, ...)
     do {                                                                                                             \
         grp_name = GRP_NAME;                                                                                         \
         printf("%.70s\n", "== " GRP_NAME " ======================================================================"); \
-    } while(0)
+    } while (0)
 #define REQUIRE(expr) _REQUIRE(expr, #expr)
 #define _REQUIRE(expr, expr_str)                                                                       \
     do {                                                                                               \
@@ -77,7 +74,7 @@ int fmt_printf(const char* format, ...)
             printf("failure: %s:%u:%s: REQUIRE failed: %s\n", __FILE__, __LINE__, grp_name, expr_str); \
             failures++;                                                                                \
         }                                                                                              \
-    } while(0)
+    } while (0)
 #define REQUIRE_STREQ(act, exp)                                 \
     do {                                                        \
         if (strcmp(act, exp)) {                                 \
@@ -87,60 +84,54 @@ int fmt_printf(const char* format, ...)
                    __FILE__, __LINE__, grp_name,                \
                    act, exp);                                   \
             failures++;                                         \
-            }                                                   \
-    } while(0)
+        }                                                       \
+    } while (0)
 
-static void vprintf_builder_1(char* buffer, ...)
-{
+static void vprintf_builder_1(char *buffer, ...) {
     va_list args;
     va_start(args, buffer);
     fmt_vprintf("%d", args);
     va_end(args);
 }
 
-static void vsnprintf_builder_1(char* buffer, ...)
-{
+static void vsnprintf_builder_1(char *buffer, ...) {
     va_list args;
     va_start(args, buffer);
     fmt_vsnprintf(buffer, 100U, "%d", args);
     va_end(args);
 }
 
-static void vsnprintf_builder_3(char* buffer, ...)
-{
+static void vsnprintf_builder_3(char *buffer, ...) {
     va_list args;
     va_start(args, buffer);
     fmt_vsnprintf(buffer, 100U, "%d %d %s", args);
     va_end(args);
 }
 
-int main(void)
-{
+int main(void) {
     const char *grp_name;
     unsigned int failures = 0;
 
-    TEST_CASE("printf", "[]" );
+    TEST_CASE("printf", "[]");
     {
         printf_idx = 0U;
         memset(printf_buffer, 0xCC, 100U);
         REQUIRE(fmt_printf("% d", 4232) == 5);
-        REQUIRE(printf_buffer[5] == (char)0xCC);
+        REQUIRE(printf_buffer[5] == (char) 0xCC);
         printf_buffer[5] = 0;
         REQUIRE_STREQ(printf_buffer, " 4232");
     }
 
-
-    TEST_CASE("fctprintf", "[]" );
+    TEST_CASE("fctprintf", "[]");
     {
         printf_idx = 0U;
         memset(printf_buffer, 0xCC, 100U);
         fmt_fctprintf(&_out_fct, NULL, "This is a test of %X", 0x12EFU);
         REQUIRE(!strncmp(printf_buffer, "This is a test of 12EF", 22U));
-        REQUIRE(printf_buffer[22] == (char)0xCC);
+        REQUIRE(printf_buffer[22] == (char) 0xCC);
     }
 
-
-    TEST_CASE("snprintf", "[]" );
+    TEST_CASE("snprintf", "[]");
     {
         char buffer[100];
 
@@ -151,19 +142,18 @@ int main(void)
         REQUIRE_STREQ(buffer, "-1");
     }
 
-    TEST_CASE("vprintf", "[]" );
+    TEST_CASE("vprintf", "[]");
     {
         char buffer[100];
         printf_idx = 0U;
         memset(printf_buffer, 0xCC, 100U);
         vprintf_builder_1(buffer, 2345);
-        REQUIRE(printf_buffer[4] == (char)0xCC);
+        REQUIRE(printf_buffer[4] == (char) 0xCC);
         printf_buffer[4] = 0;
         REQUIRE_STREQ(printf_buffer, "2345");
     }
 
-
-    TEST_CASE("vsnprintf", "[]" );
+    TEST_CASE("vsnprintf", "[]");
     {
         char buffer[100];
 
@@ -174,8 +164,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "3 -1000 test");
     }
 
-
-    TEST_CASE("space flag", "[]" );
+    TEST_CASE("space flag", "[]");
     {
         char buffer[100];
 
@@ -251,8 +240,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "x");
     }
 
-
-    TEST_CASE("+ flag", "[]" );
+    TEST_CASE("+ flag", "[]");
     {
         char buffer[100];
 
@@ -320,8 +308,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "+");
     }
 
-
-    TEST_CASE("0 flag", "[]" );
+    TEST_CASE("0 flag", "[]");
     {
         char buffer[100];
 
@@ -358,8 +345,7 @@ int main(void)
 #endif
     }
 
-
-    TEST_CASE("- flag", "[]" );
+    TEST_CASE("- flag", "[]");
     {
         char buffer[100];
 
@@ -432,8 +418,7 @@ int main(void)
 #endif
     }
 
-
-    TEST_CASE("# flag", "[]" );
+    TEST_CASE("# flag", "[]");
     {
         char buffer[100];
 
@@ -441,16 +426,15 @@ int main(void)
         REQUIRE_STREQ(buffer, "");
         fmt_sprintf(buffer, "%#.1x", 0);
         REQUIRE_STREQ(buffer, "0");
-        fmt_sprintf(buffer, "%#.0llx", (long long)0);
+        fmt_sprintf(buffer, "%#.0llx", (long long) 0);
         REQUIRE_STREQ(buffer, "");
         fmt_sprintf(buffer, "%#.8x", 0x614e);
         REQUIRE_STREQ(buffer, "0x0000614e");
-        fmt_sprintf(buffer,"%#b", 6);
+        fmt_sprintf(buffer, "%#b", 6);
         REQUIRE_STREQ(buffer, "0b110");
     }
 
-
-    TEST_CASE("specifier", "[]" );
+    TEST_CASE("specifier", "[]");
     {
         char buffer[100];
 
@@ -500,8 +484,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "%");
     }
 
-
-    TEST_CASE("width", "[]" );
+    TEST_CASE("width", "[]");
     {
         char buffer[100];
 
@@ -548,8 +531,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "x");
     }
 
-
-    TEST_CASE("width 20", "[]" );
+    TEST_CASE("width 20", "[]");
     {
         char buffer[100];
 
@@ -596,8 +578,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "                   x");
     }
 
-
-    TEST_CASE("width *20", "[]" );
+    TEST_CASE("width *20", "[]");
     {
         char buffer[100];
 
@@ -640,12 +621,11 @@ int main(void)
         fmt_sprintf(buffer, "%*X", 20, 3989525555U);
         REQUIRE_STREQ(buffer, "            EDCB5433");
 
-        fmt_sprintf(buffer, "%*c", 20,'x');
+        fmt_sprintf(buffer, "%*c", 20, 'x');
         REQUIRE_STREQ(buffer, "                   x");
     }
 
-
-    TEST_CASE("width -20", "[]" );
+    TEST_CASE("width -20", "[]");
     {
         char buffer[100];
 
@@ -709,8 +689,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "|   10| |10          | |   10|");
     }
 
-
-    TEST_CASE("width 0-20", "[]" );
+    TEST_CASE("width 0-20", "[]");
     {
         char buffer[100];
 
@@ -757,8 +736,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "x                   ");
     }
 
-
-    TEST_CASE("padding 20", "[]" );
+    TEST_CASE("padding 20", "[]");
     {
         char buffer[100];
 
@@ -799,8 +777,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "000000000000EDCB5433");
     }
 
-
-    TEST_CASE("padding .20", "[]" );
+    TEST_CASE("padding .20", "[]");
     {
         char buffer[100];
 
@@ -841,8 +818,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "000000000000EDCB5433");
     }
 
-
-    TEST_CASE("padding #020", "[]" );
+    TEST_CASE("padding #020", "[]");
     {
         char buffer[100];
 
@@ -883,8 +859,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "0X0000000000EDCB5433");
     }
 
-
-    TEST_CASE("padding #20", "[]" );
+    TEST_CASE("padding #20", "[]");
     {
         char buffer[100];
 
@@ -925,8 +900,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "          0XEDCB5433");
     }
 
-
-    TEST_CASE("padding 20.5", "[]" );
+    TEST_CASE("padding 20.5", "[]");
     {
         char buffer[100];
 
@@ -967,8 +941,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "          00EDCB5433");
     }
 
-
-    TEST_CASE("padding neg numbers", "[]" );
+    TEST_CASE("padding neg numbers", "[]");
     {
         char buffer[100];
 
@@ -999,9 +972,8 @@ int main(void)
         REQUIRE_STREQ(buffer, "-005");
     }
 
-
 #if PICO_PRINTF_SUPPORT_FLOAT
-    TEST_CASE("float padding neg numbers", "[]" );
+    TEST_CASE("float padding neg numbers", "[]");
     {
         char buffer[100];
 
@@ -1059,7 +1031,7 @@ int main(void)
     }
 #endif
 
-    TEST_CASE("length", "[]" );
+    TEST_CASE("length", "[]");
     {
         char buffer[100];
 
@@ -1142,9 +1114,8 @@ int main(void)
         REQUIRE_STREQ(buffer, "  ");
     }
 
-
 #if PICO_PRINTF_SUPPORT_FLOAT
-    TEST_CASE("float", "[]" );
+    TEST_CASE("float", "[]");
     {
         char buffer[100];
         char libc_buffer[100];
@@ -1301,8 +1272,7 @@ int main(void)
     }
 #endif
 
-
-    TEST_CASE("types", "[]" );
+    TEST_CASE("types", "[]");
     {
         char buffer[100];
 
@@ -1361,8 +1331,7 @@ int main(void)
         if (sizeof(size_t) == sizeof(long)) {
             fmt_sprintf(buffer, "%zi", -2147483647L);
             REQUIRE_STREQ(buffer, "-2147483647");
-        }
-        else {
+        } else {
             fmt_sprintf(buffer, "%zi", -2147483647LL);
             REQUIRE_STREQ(buffer, "-2147483647");
         }
@@ -1422,54 +1391,47 @@ int main(void)
         if (sizeof(intmax_t) == sizeof(long)) {
             fmt_sprintf(buffer, "%ji", -2147483647L);
             REQUIRE_STREQ(buffer, "-2147483647");
-        }
-        else {
+        } else {
             fmt_sprintf(buffer, "%ji", -2147483647LL);
             REQUIRE_STREQ(buffer, "-2147483647");
         }
     }
 
-
-    TEST_CASE("pointer", "[]" );
+    TEST_CASE("pointer", "[]");
     {
         char buffer[100];
 
-        fmt_sprintf(buffer, "%p", (void*)0x1234U);
-        if (sizeof(void*) == 4U) {
+        fmt_sprintf(buffer, "%p", (void *) 0x1234U);
+        if (sizeof(void *) == 4U) {
             REQUIRE_STREQ(buffer, "00001234");
-        }
-        else {
+        } else {
             REQUIRE_STREQ(buffer, "0000000000001234");
         }
 
-        fmt_sprintf(buffer, "%p", (void*)0x12345678U);
-        if (sizeof(void*) == 4U) {
+        fmt_sprintf(buffer, "%p", (void *) 0x12345678U);
+        if (sizeof(void *) == 4U) {
             REQUIRE_STREQ(buffer, "12345678");
-        }
-        else {
+        } else {
             REQUIRE_STREQ(buffer, "0000000012345678");
         }
 
-        fmt_sprintf(buffer, "%p-%p", (void*)0x12345678U, (void*)0x7EDCBA98U);
-        if (sizeof(void*) == 4U) {
+        fmt_sprintf(buffer, "%p-%p", (void *) 0x12345678U, (void *) 0x7EDCBA98U);
+        if (sizeof(void *) == 4U) {
             REQUIRE_STREQ(buffer, "12345678-7EDCBA98");
-        }
-        else {
+        } else {
             REQUIRE_STREQ(buffer, "0000000012345678-000000007EDCBA98");
         }
 
         if (sizeof(uintptr_t) == sizeof(uint64_t)) {
-            fmt_sprintf(buffer, "%p", (void*)(uintptr_t)0xFFFFFFFFU);
+            fmt_sprintf(buffer, "%p", (void *) (uintptr_t) 0xFFFFFFFFU);
             REQUIRE_STREQ(buffer, "00000000FFFFFFFF");
-        }
-        else {
-            fmt_sprintf(buffer, "%p", (void*)(uintptr_t)0xFFFFFFFFU);
+        } else {
+            fmt_sprintf(buffer, "%p", (void *) (uintptr_t) 0xFFFFFFFFU);
             REQUIRE_STREQ(buffer, "FFFFFFFF");
         }
     }
 
-
-    TEST_CASE("unknown flag", "[]" );
+    TEST_CASE("unknown flag", "[]");
     {
         char buffer[100];
 
@@ -1477,8 +1439,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "kmarco");
     }
 
-
-    TEST_CASE("string length", "[]" );
+    TEST_CASE("string length", "[]");
     {
         char buffer[100];
 
@@ -1504,8 +1465,7 @@ int main(void)
         REQUIRE_STREQ(buffer, "123");
     }
 
-
-    TEST_CASE("buffer length", "[]" );
+    TEST_CASE("buffer length", "[]");
     {
         char buffer[100];
         int ret;
@@ -1515,12 +1475,12 @@ int main(void)
         ret = fmt_snprintf(NULL, 0, "%s", "Test");
         REQUIRE(ret == 4);
 
-        buffer[0] = (char)0xA5;
+        buffer[0] = (char) 0xA5;
         ret = fmt_snprintf(buffer, 0, "%s", "Test");
-        REQUIRE(buffer[0] == (char)0xA5);
+        REQUIRE(buffer[0] == (char) 0xA5);
         REQUIRE(ret == 4);
 
-        buffer[0] = (char)0xCC;
+        buffer[0] = (char) 0xCC;
         fmt_snprintf(buffer, 1, "%s", "Test");
         REQUIRE(buffer[0] == '\0');
 
@@ -1528,10 +1488,9 @@ int main(void)
         REQUIRE_STREQ(buffer, "H");
     }
 
-
-    TEST_CASE("ret value", "[]" );
+    TEST_CASE("ret value", "[]");
     {
-        char buffer[100] ;
+        char buffer[100];
         int ret;
 
         ret = fmt_snprintf(buffer, 6, "0%s", "1234");
@@ -1540,11 +1499,11 @@ int main(void)
 
         ret = fmt_snprintf(buffer, 6, "0%s", "12345");
         REQUIRE_STREQ(buffer, "01234");
-        REQUIRE(ret == 6);  // '5' is truncated
+        REQUIRE(ret == 6); // '5' is truncated
 
         ret = fmt_snprintf(buffer, 6, "0%s", "1234567");
         REQUIRE_STREQ(buffer, "01234");
-        REQUIRE(ret == 8);  // '567' are truncated
+        REQUIRE(ret == 8); // '567' are truncated
 
         ret = fmt_snprintf(buffer, 10, "hello, world");
         REQUIRE(ret == 12);
@@ -1557,8 +1516,7 @@ int main(void)
         REQUIRE(buffer[2] == '\0');
     }
 
-
-    TEST_CASE("misc", "[]" );
+    TEST_CASE("misc", "[]");
     {
         char buffer[100];
 

@@ -43,18 +43,31 @@ check: build
 
 ################################################################################
 
+sources_c  = pico_fmt/printf.c
+sources_c += pico_fmt/include/pico/fmt_printf.h
+sources_c += pico_fmt/test/test_suite.c
+#sources_c += pico_printf/printf_pico.c
+#sources_c += pico_printf/include/pico/printf.h
 sources_py3 = build-aux/measure
 
 lint:
+	$(MAKE) -k lint/c lint/py3
+lint/c:
+	clang-format -Werror --dry-run -- $(sources_c)
+lint/py3:
 	mypy --strict --scripts-are-modules $(sources_py3)
 	black --line-length 100 --check $(sources_py3)
 	isort --check $(sources_py3)
-.PHONY: lint
+.PHONY: lint lint/c lint/py3
 
 format:
+	$(MAKE) -k format/c format/py3
+format/c:
+	clang-format -Werror -i -- $(sources_c)
+format/py3:
 	black --line-length 100 $(sources_py3)
 	isort $(sources_py3)
-.PHONY: format
+.PHONY: format format/c format/py3
 
 ################################################################################
 

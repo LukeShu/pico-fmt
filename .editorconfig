@@ -14,5 +14,5 @@ trim_trailing_whitespace = true
 [GNUmakefile]
 indent_style = tab
 
-[*.yml]
+[{*.yml,.clang-format}]
 indent_size = 2
