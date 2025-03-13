@@ -41,7 +41,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 
 #include "pico/fmt_printf.h"
 
