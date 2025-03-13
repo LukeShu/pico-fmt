@@ -292,7 +292,8 @@ static void _ntoa_long_long(struct fmt_state *state, unsigned long long value, b
 static void _etoa(struct fmt_state *state, double value);
 #endif
 
-#define is_nan __builtin_isnan
+#define is_nan         __builtin_isnan
+#define array_len(ary) (sizeof(ary) / sizeof(ary[0]))
 
 // internal ftoa for fixed decimal floating point
 static void _ftoa(struct fmt_state *state, double value) {
@@ -337,8 +338,8 @@ static void _ftoa(struct fmt_state *state, double value) {
     if (!(state->flags & FLAGS_PRECISION)) {
         state->precision = PICO_PRINTF_DEFAULT_FLOAT_PRECISION;
     }
-    // limit precision to 9, cause a precision >= 10 can lead to overflow errors
-    while ((len < PICO_PRINTF_FTOA_BUFFER_SIZE) && (state->precision > 9U)) {
+    // limit precision, we don't want to overflow pow10[]
+    while ((len < PICO_PRINTF_FTOA_BUFFER_SIZE) && (state->precision >= array_len(pow10))) {
         buf[len++] = '0';
         state->precision--;
     }
