@@ -84,4 +84,4 @@ int fmt_sprintf(char *buffer, const char *format, ...);
 }
 #endif
 
-#endif  // _PICO_FMT_PRINTF_H_
+#endif // _PICO_FMT_PRINTF_H_
