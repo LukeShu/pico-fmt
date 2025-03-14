@@ -55,6 +55,13 @@ Compared to pico-sdk's version, pico-fmt is:
     + The CMake function `pico_set_printf_implementation()` may be
       called on an OBJECT_LIBRARY, not just an EXECUTABLE.
 
+ - **Lighter weight:**
+
+    + Despite all of the above, pico-fmt is comparable on ROM use and
+      lighter on stack use than pico-sdk.  However, total RAM use is
+      higher due to the table of specifiers for `fmt_install()`.  See
+      the [Size](#size) section for measurements.
+
 # Usage
 
 ## Without pico-sdk
