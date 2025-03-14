@@ -14,6 +14,7 @@ if (NOT TARGET pico_fmt)
 
     target_sources(pico_fmt INTERFACE
             ${CMAKE_CURRENT_LIST_DIR}/printf.c
+            ${CMAKE_CURRENT_LIST_DIR}/convenience.c
     )
     target_link_libraries(pico_fmt INTERFACE pico_fmt_headers)
 
