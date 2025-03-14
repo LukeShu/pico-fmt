@@ -407,14 +407,14 @@ int main(void) {
 #if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
         REQUIRE_STREQ(buffer, "-4.200e+01     ");
 #else
-        REQUIRE_STREQ(buffer, "??");
+        REQUIRE_STREQ(buffer, "%!(unknown specifier='e')");
 #endif
 
         fmt_sprintf(buffer, "%0-15.3g", -42.);
 #if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
         REQUIRE_STREQ(buffer, "-42.0          ");
 #else
-        REQUIRE_STREQ(buffer, "??");
+        REQUIRE_STREQ(buffer, "%!(unknown specifier='g')");
 #endif
     }
 
@@ -1246,13 +1246,9 @@ int main(void) {
         REQUIRE_STREQ(buffer, "+1.230E+308");
 #endif
 
-        // out of range for float: should switch to exp notation if supported, else empty
+        // out of range for float
         fmt_sprintf(buffer, "%.1f", 1E20);
-#if PICO_PRINTF_SUPPORT_EXPONENTIAL
-        REQUIRE_STREQ(buffer, "1.0e+20");
-#else
-        REQUIRE_STREQ(buffer, "");
-#endif
+        REQUIRE_STREQ(buffer, "%!(exceeded PICO_PRINTF_MAX_FLOAT)");
 
         // brute force our float against libc float
         for (float i = -100000; i < 100000; i += 1) {
@@ -1384,7 +1380,7 @@ int main(void) {
 #if PICO_PRINTF_SUPPORT_PTRDIFF_T
         REQUIRE_STREQ(buffer, "a");
 #else
-        REQUIRE_STREQ(buffer, "tx");
+        REQUIRE_STREQ(buffer, "%!(unknown specifier='t')x");
 #endif
 
         // TBD
@@ -1436,7 +1432,7 @@ int main(void) {
         char buffer[100];
 
         fmt_sprintf(buffer, "%kmarco", 42, 37);
-        REQUIRE_STREQ(buffer, "kmarco");
+        REQUIRE_STREQ(buffer, "%!(unknown specifier='k')marco");
     }
 
     TEST_CASE("string length", "[]");
@@ -1459,7 +1455,7 @@ int main(void) {
         REQUIRE_STREQ(buffer, "1234ab");
 
         fmt_sprintf(buffer, "%.4.2s", "123456");
-        REQUIRE_STREQ(buffer, ".2s");
+        REQUIRE_STREQ(buffer, "%!(unknown specifier='.')2s");
 
         fmt_sprintf(buffer, "%.*s", 3, "123456");
         REQUIRE_STREQ(buffer, "123");
