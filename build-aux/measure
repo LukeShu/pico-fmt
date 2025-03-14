@@ -338,16 +338,25 @@ def measure_stack(prefix: str, elffile: str, objfiles: list[str], cifiles: list[
         if "->fct(" in calltxt:
             return set()
         elif re.search(r"\bout\(", calltxt):
+            # Gone; was last present in pico-fmt/v0.1.0
             return {"_out_fct", "_out_null"}
         elif re.search(r"\bspecifier_table\[", calltxt):
-            return {
-                "conv_int",
+            callees = {
                 "conv_double",
                 "conv_char",
                 "conv_str",
                 "conv_ptr",
                 "conv_pct",
             }
+            nonlocal final_syms
+            if "conv_int" in final_syms:
+                # Older; was last present in pico-fmt/v0.2.0
+                callees.add("conv_int")
+            else:
+                # Newer
+                callees.add("conv_sint")
+                callees.add("conv_uint")
+            return callees
         return None
 
     graph = read_ci(cifiles, aliases, indirect_callees)
