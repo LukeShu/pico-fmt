@@ -67,6 +67,7 @@ check: build
 sources_c  = pico_fmt/printf.c
 sources_c += pico_fmt/convenience.c
 sources_c += pico_fmt/include/pico/fmt_printf.h
+sources_c += pico_fmt/include/pico/fmt_install.h
 sources_c += pico_fmt/test/test_suite.c
 #sources_c += pico_printf/printf_pico.c
 #sources_c += pico_printf/include/pico/printf.h

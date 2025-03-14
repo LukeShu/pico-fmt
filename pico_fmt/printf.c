@@ -42,6 +42,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "pico/fmt_install.h"
 #include "pico/fmt_printf.h"
 
 // PICO_CONFIG: PICO_PRINTF_NTOA_BUFFER_SIZE, Define printf ntoa buffer size, min=0, max=128, default=32, group=pico_printf
@@ -98,49 +99,24 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// internal flag definitions
-#define FMT_FLAG_ZEROPAD   (1U << 0U) // '0'
-#define FMT_FLAG_LEFT      (1U << 1U) // '-'
-#define FMT_FLAG_PLUS      (1U << 2U) // '+'
-#define FMT_FLAG_SPACE     (1U << 3U) // ' '
-#define FMT_FLAG_HASH      (1U << 4U) // '#'
-#define FMT_FLAG_PRECISION (1U << 5U) // state->precision is set
-
-enum fmt_size {
-    FMT_SIZE_CHAR,      // "hh"
-    FMT_SIZE_SHORT,     // "h"
-    FMT_SIZE_DEFAULT,   // ""
-    FMT_SIZE_LONG,      // "l"
-    FMT_SIZE_LONG_LONG, // "ll"
-};
-
-struct fmt_ctx {
+struct _fmt_ctx {
     fmt_fct_t fct;
     void *arg;
     size_t idx;
 };
 
-struct fmt_state {
-    // %[flags][width][.precision][size]specifier
-    unsigned char flags;
-    unsigned int width;
-    unsigned int precision;
-    enum fmt_size size;
-    char specifier;
-
-    struct fmt_ctx *ctx;
-};
-
-static inline void fmt_state_putchar(struct fmt_state *state, char character) {
+inline void fmt_state_putchar(struct fmt_state *state, char character) {
     if (state->ctx->fct) {
         state->ctx->fct(character, state->ctx->arg);
     }
     state->ctx->idx++;
 }
 
-static inline size_t fmt_state_len(struct fmt_state *state) {
+inline size_t fmt_state_len(struct fmt_state *state) {
     return state->ctx->idx;
 }
+
+#define array_len(ary) (sizeof(ary) / sizeof(ary[0]))
 
 // internal secure strlen
 // \return The length of the string (excluding the terminating 0) limited by 'maxsize'
@@ -280,8 +256,7 @@ _define_ntoa(long long, ll);
 
 #if PICO_PRINTF_SUPPORT_FLOAT
 
-#define is_nan         __builtin_isnan
-#define array_len(ary) (sizeof(ary) / sizeof(ary[0]))
+#define is_nan __builtin_isnan
 
 static bool _float_special(struct fmt_state *state, double value) {
     // test for special values
@@ -533,13 +508,54 @@ static void _etoa(struct fmt_state *state, double value, bool adapt_exp) {
 #endif // PICO_PRINTF_SUPPORT_EXPONENTIAL
 #endif // PICO_PRINTF_SUPPORT_FLOAT
 
-int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
-    struct fmt_ctx _ctx = {
+static void conv_int(struct fmt_state *state);
+static void conv_double(struct fmt_state *state);
+static void conv_char(struct fmt_state *state);
+static void conv_str(struct fmt_state *state);
+static void conv_ptr(struct fmt_state *state);
+static void conv_pct(struct fmt_state *state);
+
+static fmt_specifier_t specifier_table[0x7F] = {
+    ['d'] = conv_int,
+    ['i'] = conv_int,
+
+    ['u'] = conv_int,
+    ['x'] = conv_int,
+    ['X'] = conv_int,
+    ['o'] = conv_int,
+    ['b'] = conv_int,
+
+    ['f'] = conv_double,
+    ['F'] = conv_double,
+    ['e'] = conv_double,
+    ['E'] = conv_double,
+    ['g'] = conv_double,
+    ['G'] = conv_double,
+
+    ['c'] = conv_char,
+    ['s'] = conv_str,
+    ['p'] = conv_ptr,
+    ['%'] = conv_pct,
+};
+
+void fmt_install(char character, fmt_specifier_t fn) {
+    unsigned int idx = character;
+    if (idx < array_len(specifier_table) &&
+        ' ' < idx && idx <= '~' &&
+        !('0' <= idx && idx <= '9'))
+        specifier_table[idx] = fn;
+}
+
+int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list _va) {
+    struct _fmt_ctx _ctx = {
         .fct = fct,
         .arg = arg,
         .idx = 0,
     };
+    va_list _va_save;
+    va_copy(_va_save, _va);
     struct fmt_state _state = {
+        .args = &_va_save,
         .ctx = &_ctx,
     };
     struct fmt_state *state = &_state;
@@ -591,7 +607,7 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
         if (_is_digit(*format)) {
             state->width = _atoi(&format);
         } else if (*format == '*') {
-            const int w = va_arg(va, int);
+            const int w = va_arg(*state->args, int);
             if (w < 0) {
                 state->flags |= FMT_FLAG_LEFT; // reverse padding
                 state->width = (unsigned int) -w;
@@ -609,7 +625,7 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
             if (_is_digit(*format)) {
                 state->precision = _atoi(&format);
             } else if (*format == '*') {
-                const int prec = (int) va_arg(va, int);
+                const int prec = (int) va_arg(*state->args, int);
                 state->precision = prec > 0 ? (unsigned int) prec : 0U;
                 format++;
             }
@@ -655,208 +671,206 @@ int fmt_vfctprintf(fmt_fct_t fct, void *arg, const char *format, va_list va) {
         // evaluate specifier
         state->specifier = *format;
         format++;
-        switch (state->specifier) {
-            case 'd':
-            case 'i':
-            case 'u':
-            case 'x':
-            case 'X':
-            case 'o':
-            case 'b': {
-                // set the base
-                unsigned int base;
-                if (state->specifier == 'x' || state->specifier == 'X') {
-                    base = 16U;
-                } else if (state->specifier == 'o') {
-                    base = 8U;
-                } else if (state->specifier == 'b') {
-                    base = 2U;
-                } else {
-                    base = 10U;
-                    state->flags &= ~FMT_FLAG_HASH; // no hash for dec format
-                }
-
-                // no plus or space flag for u, x, X, o, b
-                if ((state->specifier != 'i') && (state->specifier != 'd')) {
-                    state->flags &= ~(FMT_FLAG_PLUS | FMT_FLAG_SPACE);
-                }
-
-                // ignore '0' flag when precision is given
-                if (state->flags & FMT_FLAG_PRECISION) {
-                    state->flags &= ~FMT_FLAG_ZEROPAD;
-                }
-
-                // convert the integer
-                if ((state->specifier == 'i') || (state->specifier == 'd')) {
-                    // signed
-                    switch (state->size) {
-                        case FMT_SIZE_LONG_LONG:
-#if PICO_PRINTF_SUPPORT_LONG_LONG
-                        {
-                            const long long value = va_arg(va, long long);
-                            _ntoall(state, (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
-                            break;
-                        }
-#else
-                            // fall through
-#endif
-                        case FMT_SIZE_LONG: {
-                            const long value = va_arg(va, long);
-                            _ntoal(state, (unsigned long) (value > 0 ? value : 0 - value), value < 0, base);
-                            break;
-                        }
-                        case FMT_SIZE_DEFAULT: {
-                            const int value = va_arg(va, int);
-                            _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
-                            break;
-                        }
-                        case FMT_SIZE_SHORT: {
-                            // 'short' is promoted to 'int' when passed through '...'; so we read it
-                            // with va_arg(va, int), but then truncate it with casting.
-                            const int value = (short int) va_arg(va, int);
-                            _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
-                            break;
-                        }
-                        case FMT_SIZE_CHAR: {
-                            // 'char' is promoted to 'int' when passed through '...'; so we read it
-                            // with va_arg(va, int), but then truncate it with casting.
-                            const int value = (char) va_arg(va, int);
-                            _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
-                            break;
-                        }
-                    }
-                } else {
-                    // unsigned
-                    switch (state->size) {
-                        case FMT_SIZE_LONG_LONG:
-#if PICO_PRINTF_SUPPORT_LONG_LONG
-                            _ntoall(state, va_arg(va, unsigned long long), false, base);
-                            break;
-#else
-                            // fall through
-#endif
-                        case FMT_SIZE_LONG:
-                            _ntoal(state, va_arg(va, unsigned long), false, base);
-                            break;
-                        case FMT_SIZE_DEFAULT:
-                            _ntoa(state, va_arg(va, unsigned int), false, base);
-                            break;
-                        case FMT_SIZE_SHORT:
-                            // 'short' is promoted to 'int' when passed through '...'; so we read it
-                            // with va_arg(va, unsigned int), but then truncate it with casting.
-                            _ntoa(state, (unsigned short int) va_arg(va, unsigned int), false, base);
-                            break;
-                        case FMT_SIZE_CHAR:
-                            // 'char' is promoted to 'int' when passed through '...'; so we read it
-                            // with va_arg(va, unsigned int), but then truncate it with casting.
-                            _ntoa(state, (unsigned char) va_arg(va, unsigned int), false, base);
-                            break;
-                    }
-                }
-                break;
-            }
-            case 'f':
-            case 'F': {
-#if PICO_PRINTF_SUPPORT_FLOAT
-                double value = va_arg(va, double);
-                // test for very large values
-                // standard printf behavior is to print EVERY whole number digit -- which could be 100s of characters overflowing your buffers == bad
-                if ((value > PICO_PRINTF_MAX_FLOAT && value < DBL_MAX) || (value < -PICO_PRINTF_MAX_FLOAT && value > -DBL_MAX)) {
-#if PICO_PRINTF_SUPPORT_EXPONENTIAL
-                    _etoa(state, value, false);
-#endif
-                    break;
-                }
-                _ftoa(state, value);
-#else
-                for (int i = 0; i < 2; i++)
-                    fmt_state_putchar(state, '?');
-                va_arg(va, double);
-#endif
-                break;
-            }
-            case 'e':
-            case 'E':
-            case 'g':
-            case 'G':
-#if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
-                _etoa(state, va_arg(va, double), (state->specifier == 'g') || (state->specifier == 'G'));
-#else
-                for (int i = 0; i < 2; i++)
-                    fmt_state_putchar(state, '?');
-                va_arg(va, double);
-#endif
-                break;
-            case 'c': {
-                unsigned int l = 1U;
-                // pre padding
-                if (!(state->flags & FMT_FLAG_LEFT)) {
-                    while (l++ < state->width) {
-                        fmt_state_putchar(state, ' ');
-                    }
-                }
-                // char output
-                fmt_state_putchar(state, (char) va_arg(va, int));
-                // post padding
-                if (state->flags & FMT_FLAG_LEFT) {
-                    while (l++ < state->width) {
-                        fmt_state_putchar(state, ' ');
-                    }
-                }
-                break;
-            }
-
-            case 's': {
-                const char *p = va_arg(va, char *);
-                unsigned int l = _strnlen_s(p, state->precision ? state->precision : (size_t) -1);
-                // pre padding
-                if (state->flags & FMT_FLAG_PRECISION) {
-                    l = (l < state->precision ? l : state->precision);
-                }
-                if (!(state->flags & FMT_FLAG_LEFT)) {
-                    while (l++ < state->width) {
-                        fmt_state_putchar(state, ' ');
-                    }
-                }
-                // string output
-                while ((*p != 0) && (!(state->flags & FMT_FLAG_PRECISION) || state->precision--)) {
-                    fmt_state_putchar(state, *(p++));
-                }
-                // post padding
-                if (state->flags & FMT_FLAG_LEFT) {
-                    while (l++ < state->width) {
-                        fmt_state_putchar(state, ' ');
-                    }
-                }
-                break;
-            }
-
-            case 'p': {
-                state->width = sizeof(void *) * 2U;
-                state->flags |= FMT_FLAG_ZEROPAD;
-                state->specifier = 'X';
-#if PICO_PRINTF_SUPPORT_LONG_LONG
-                const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
-                if (is_ll) {
-                    _ntoall(state, (uintptr_t) va_arg(va, void *), false, 16U);
-                } else {
-#endif
-                    _ntoal(state, (unsigned long) ((uintptr_t) va_arg(va, void *)), false, 16U);
-#if PICO_PRINTF_SUPPORT_LONG_LONG
-                }
-#endif
-                break;
-            }
-
-            case '%':
-                fmt_state_putchar(state, '%');
-                break;
-
-            default:
-                fmt_state_putchar(state, state->specifier);
-                break;
+        if ((unsigned int) state->specifier < array_len(specifier_table) &&
+            specifier_table[(unsigned int) state->specifier]) {
+            specifier_table[(unsigned int) state->specifier](state);
+        } else {
+            fmt_state_putchar(state, state->specifier);
         }
     }
 
+    va_end(_va_save);
     return (int) fmt_state_len(state);
+}
+
+static void conv_int(struct fmt_state *state) {
+    // set the base
+    unsigned int base;
+    if (state->specifier == 'x' || state->specifier == 'X') {
+        base = 16U;
+    } else if (state->specifier == 'o') {
+        base = 8U;
+    } else if (state->specifier == 'b') {
+        base = 2U;
+    } else {
+        base = 10U;
+        state->flags &= ~FMT_FLAG_HASH; // no hash for dec format
+    }
+
+    // no plus or space flag for u, x, X, o, b
+    if ((state->specifier != 'i') && (state->specifier != 'd')) {
+        state->flags &= ~(FMT_FLAG_PLUS | FMT_FLAG_SPACE);
+    }
+
+    // ignore '0' flag when precision is given
+    if (state->flags & FMT_FLAG_PRECISION) {
+        state->flags &= ~FMT_FLAG_ZEROPAD;
+    }
+
+    // convert the integer
+    if ((state->specifier == 'i') || (state->specifier == 'd')) {
+        // signed
+        switch (state->size) {
+            case FMT_SIZE_LONG_LONG:
+#if PICO_PRINTF_SUPPORT_LONG_LONG
+            {
+                const long long value = va_arg(*state->args, long long);
+                _ntoall(state, (unsigned long long) (value > 0 ? value : 0 - value), value < 0, base);
+                break;
+            }
+#else
+                // fall through
+#endif
+            case FMT_SIZE_LONG: {
+                const long value = va_arg(*state->args, long);
+                _ntoal(state, (unsigned long) (value > 0 ? value : 0 - value), value < 0, base);
+                break;
+            }
+            case FMT_SIZE_DEFAULT: {
+                const int value = va_arg(*state->args, int);
+                _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
+                break;
+            }
+            case FMT_SIZE_SHORT: {
+                // 'short' is promoted to 'int' when passed through '...'; so we read it
+                // with va_arg(*state->args, int), but then truncate it with casting.
+                const int value = (short int) va_arg(*state->args, int);
+                _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
+                break;
+            }
+            case FMT_SIZE_CHAR: {
+                // 'char' is promoted to 'int' when passed through '...'; so we read it
+                // with va_arg(*state->args, int), but then truncate it with casting.
+                const int value = (char) va_arg(*state->args, int);
+                _ntoa(state, (unsigned int) (value > 0 ? value : 0 - value), value < 0, base);
+                break;
+            }
+        }
+    } else {
+        // unsigned
+        switch (state->size) {
+            case FMT_SIZE_LONG_LONG:
+#if PICO_PRINTF_SUPPORT_LONG_LONG
+                _ntoall(state, va_arg(*state->args, unsigned long long), false, base);
+                break;
+#else
+                // fall through
+#endif
+            case FMT_SIZE_LONG:
+                _ntoal(state, va_arg(*state->args, unsigned long), false, base);
+                break;
+            case FMT_SIZE_DEFAULT:
+                _ntoa(state, va_arg(*state->args, unsigned int), false, base);
+                break;
+            case FMT_SIZE_SHORT:
+                // 'short' is promoted to 'int' when passed through '...'; so we read it
+                // with va_arg(*state->args, unsigned int), but then truncate it with casting.
+                _ntoa(state, (unsigned short int) va_arg(*state->args, unsigned int), false, base);
+                break;
+            case FMT_SIZE_CHAR:
+                // 'char' is promoted to 'int' when passed through '...'; so we read it
+                // with va_arg(*state->args, unsigned int), but then truncate it with casting.
+                _ntoa(state, (unsigned char) va_arg(*state->args, unsigned int), false, base);
+                break;
+        }
+    }
+}
+
+static void conv_double(struct fmt_state *state) {
+    switch (state->specifier) {
+        case 'f':
+        case 'F': {
+#if PICO_PRINTF_SUPPORT_FLOAT
+            double value = va_arg(*state->args, double);
+            // test for very large values
+            // standard printf behavior is to print EVERY whole number digit -- which could be 100s of characters overflowing your buffers == bad
+            if ((value > PICO_PRINTF_MAX_FLOAT && value < DBL_MAX) || (value < -PICO_PRINTF_MAX_FLOAT && value > -DBL_MAX)) {
+#if PICO_PRINTF_SUPPORT_EXPONENTIAL
+                _etoa(state, value, false);
+#endif
+                break;
+            }
+            _ftoa(state, value);
+#else
+            for (int i = 0; i < 2; i++)
+                fmt_state_putchar(state, '?');
+            va_arg(*state->args, double);
+#endif
+            break;
+        }
+        case 'e':
+        case 'E':
+        case 'g':
+        case 'G':
+#if PICO_PRINTF_SUPPORT_FLOAT && PICO_PRINTF_SUPPORT_EXPONENTIAL
+            _etoa(state, va_arg(*state->args, double), (state->specifier == 'g') || (state->specifier == 'G'));
+#else
+            for (int i = 0; i < 2; i++)
+                fmt_state_putchar(state, '?');
+            va_arg(*state->args, double);
+#endif
+            break;
+    }
+}
+
+static void conv_char(struct fmt_state *state) {
+    unsigned int l = 1U;
+    // pre padding
+    if (!(state->flags & FMT_FLAG_LEFT)) {
+        while (l++ < state->width) {
+            fmt_state_putchar(state, ' ');
+        }
+    }
+    // char output
+    fmt_state_putchar(state, (char) va_arg(*state->args, int));
+    // post padding
+    if (state->flags & FMT_FLAG_LEFT) {
+        while (l++ < state->width) {
+            fmt_state_putchar(state, ' ');
+        }
+    }
+}
+
+static void conv_str(struct fmt_state *state) {
+    const char *p = va_arg(*state->args, char *);
+    unsigned int l = _strnlen_s(p, state->precision ? state->precision : (size_t) -1);
+    // pre padding
+    if (state->flags & FMT_FLAG_PRECISION) {
+        l = (l < state->precision ? l : state->precision);
+    }
+    if (!(state->flags & FMT_FLAG_LEFT)) {
+        while (l++ < state->width) {
+            fmt_state_putchar(state, ' ');
+        }
+    }
+    // string output
+    while ((*p != 0) && (!(state->flags & FMT_FLAG_PRECISION) || state->precision--)) {
+        fmt_state_putchar(state, *(p++));
+    }
+    // post padding
+    if (state->flags & FMT_FLAG_LEFT) {
+        while (l++ < state->width) {
+            fmt_state_putchar(state, ' ');
+        }
+    }
+}
+
+static void conv_ptr(struct fmt_state *state) {
+    state->width = sizeof(void *) * 2U;
+    state->flags |= FMT_FLAG_ZEROPAD;
+    state->specifier = 'X';
+#if PICO_PRINTF_SUPPORT_LONG_LONG
+    const bool is_ll = sizeof(uintptr_t) == sizeof(long long);
+    if (is_ll) {
+        _ntoall(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+    } else {
+#endif
+        _ntoal(state, (unsigned long) ((uintptr_t) va_arg(*state->args, void *)), false, 16U);
+#if PICO_PRINTF_SUPPORT_LONG_LONG
+    }
+#endif
+}
+
+static void conv_pct(struct fmt_state *state) {
+    fmt_state_putchar(state, '%');
 }
