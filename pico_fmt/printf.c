@@ -45,13 +45,6 @@
 #include "pico/fmt_install.h"
 #include "pico/fmt_printf.h"
 
-// PICO_CONFIG: PICO_PRINTF_NTOA_BUFFER_SIZE, Define printf ntoa buffer size, min=0, max=128, default=32, group=pico_printf
-// 'ntoa' conversion buffer size, this must be big enough to hold one converted
-// numeric number including padded zeros (dynamically created on stack)
-#ifndef PICO_PRINTF_NTOA_BUFFER_SIZE
-#define PICO_PRINTF_NTOA_BUFFER_SIZE 32U
-#endif
-
 // PICO_CONFIG: PICO_PRINTF_FTOA_BUFFER_SIZE, Define printf ftoa buffer size, min=0, max=128, default=32, group=pico_printf
 // 'ftoa' conversion buffer size, this must be big enough to hold one converted
 // float number including padded zeros (dynamically created on stack)
@@ -97,7 +90,7 @@
 #include <float.h>
 #endif
 
-///////////////////////////////////////////////////////////////////////////////
+// utilities //////////////////////////////////////////////////////////////////
 
 struct _fmt_ctx {
     fmt_fct_t fct;
@@ -122,6 +115,7 @@ inline size_t fmt_state_len(struct fmt_state *state) {
 }
 
 #define array_len(ary) (sizeof(ary) / sizeof(ary[0]))
+#define max(a, b)      ((a) > (b) ? (a) : (b))
 
 // internal secure strlen
 // \return The length of the string (excluding the terminating 0) limited by 'maxsize'
@@ -151,6 +145,8 @@ static unsigned int _atoi(const char **str) {
     return i;
 }
 
+#if PICO_PRINTF_SUPPORT_FLOAT
+
 // output the specified string in reverse, taking care of any zero-padding
 static void _out_rev(struct fmt_state *state, const char *buf, size_t len) {
     const size_t start_idx = fmt_state_len(state);
@@ -174,97 +170,127 @@ static void _out_rev(struct fmt_state *state, const char *buf, size_t len) {
         }
     }
 }
+#endif
 
-// internal itoa format
-static void _ntoa_format(struct fmt_state *state, char *buf, size_t len, bool negative, unsigned int base) {
-    // ignore '0' flag when precision is given
-    if (state->flags & FMT_FLAG_PRECISION) {
+// int ////////////////////////////////////////////////////////////////////////
+
+static void _ntoa_intro(struct fmt_state *state, unsigned base, unsigned ndigits, int sign) {
+    unsigned nextra = 0;
+    switch (base) {
+        case 2:
+            if ((state->flags & FMT_FLAG_HASH) && sign != 0)
+                nextra = 2; // "0b"
+            break;
+        case 8:
+            if ((state->flags & FMT_FLAG_HASH) && sign != 0)
+                nextra = 1; // "0"
+            break;
+        case 10:
+            if (state->flags & (FMT_FLAG_PLUS | FMT_FLAG_SPACE))
+                nextra = 1; // "+" or "-" or " "
+            else if (sign < 0)
+                nextra = 1; // "-"
+            break;
+        case 16:
+            if ((state->flags & FMT_FLAG_HASH) && sign != 0)
+                nextra = 2; // "0x"
+            break;
+    }
+
+    if (state->flags & FMT_FLAG_PRECISION)
+        // ignore '0' flag when precision is given
         state->flags &= ~FMT_FLAG_ZEROPAD;
-    }
 
-    // pad leading zeros
-    if (!(state->flags & FMT_FLAG_LEFT)) {
-        if (state->width && (state->flags & FMT_FLAG_ZEROPAD) && (negative || (state->flags & (FMT_FLAG_PLUS | FMT_FLAG_SPACE)))) {
-            state->width--;
-        }
-        while (len < state->precision) {
-            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-                goto ntoa_exceeded;
-            buf[len++] = '0';
-        }
-        while ((state->flags & FMT_FLAG_ZEROPAD) && (len < state->width)) {
-            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-                goto ntoa_exceeded;
-            buf[len++] = '0';
-        }
-    }
+    // emit leading spaces
+    if (state->width &&
+        !(state->flags & FMT_FLAG_LEFT) &&
+        !(state->flags & FMT_FLAG_ZEROPAD))
+        for (unsigned i = max(state->precision, ndigits) + nextra; i < state->width; i++)
+            fmt_state_putchar(state, ' ');
 
-    // handle hash
-    if (state->flags & FMT_FLAG_HASH && base != 10) {
-        if (!(state->flags & FMT_FLAG_PRECISION) && len && ((len == state->precision) || (len == state->width))) {
-            len--;
-            if (len && (base == 16U)) {
-                len--;
+    // emit base or sign
+    switch (base) {
+        case 2:
+            if ((state->flags & FMT_FLAG_HASH) && sign != 0) {
+                fmt_state_putchar(state, '0');
+                fmt_state_putchar(state, 'b');
             }
-        }
-        if (base == 16U) {
-            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-                goto ntoa_exceeded;
-            buf[len++] = state->specifier;
-        } else if (base == 2U) {
-            if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-                goto ntoa_exceeded;
-            buf[len++] = 'b';
-        }
-        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-            goto ntoa_exceeded;
-        buf[len++] = '0';
+            break;
+        case 8:
+            if ((state->flags & FMT_FLAG_HASH) && sign != 0)
+                fmt_state_putchar(state, '0');
+            break;
+        case 10:
+            if (sign < 0)
+                fmt_state_putchar(state, '-');
+            else if (state->flags & FMT_FLAG_PLUS)
+                fmt_state_putchar(state, '+');
+            else if (state->flags & FMT_FLAG_SPACE)
+                fmt_state_putchar(state, ' ');
+            break;
+        case 16:
+            if ((state->flags & FMT_FLAG_HASH) && sign != 0) {
+                fmt_state_putchar(state, '0');
+                fmt_state_putchar(state, state->specifier);
+            }
+            break;
     }
 
-    if (negative) {
-        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-            goto ntoa_exceeded;
-        buf[len++] = '-';
-    } else if (state->flags & FMT_FLAG_PLUS) {
-        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-            goto ntoa_exceeded;
-        buf[len++] = '+'; // ignore the space if the '+' exists
-    } else if (state->flags & FMT_FLAG_SPACE) {
-        if (len == PICO_PRINTF_NTOA_BUFFER_SIZE)
-            goto ntoa_exceeded;
-        buf[len++] = ' ';
+    // emit leading zeroes
+    if (state->flags & FMT_FLAG_PRECISION) {
+        for (unsigned i = ndigits; i < state->precision; i++)
+            fmt_state_putchar(state, '0');
+    } else if (state->width &&
+               !(state->flags & FMT_FLAG_LEFT) &&
+               (state->flags & FMT_FLAG_ZEROPAD)) {
+        for (unsigned i = ndigits + nextra; i < state->width; i++)
+            fmt_state_putchar(state, '0');
+    } else if (sign == 0) {
+        // always have at least one '0' digit, unless precision told us otherwise
+        fmt_state_putchar(state, '0');
     }
-
-    _out_rev(state, buf, len);
-    return;
-ntoa_exceeded:
-    fmt_state_puts(state, "%!(exceeded PICO_PRINTF_NTOA_BUFFER_SIZE)");
 }
 
-#define _define_ntoa(TYP, SUF)                                                                                           \
-    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP value, bool negative, unsigned int base) {              \
-        char buf[PICO_PRINTF_NTOA_BUFFER_SIZE];                                                                          \
-        size_t len = 0U;                                                                                                 \
-                                                                                                                         \
-        /* no hash for 0 values */                                                                                       \
-        if (!value) {                                                                                                    \
-            state->flags &= ~FMT_FLAG_HASH;                                                                              \
-        }                                                                                                                \
-                                                                                                                         \
-        /* write if precision != 0 and value is != 0 */                                                                  \
-        if (!(state->flags & FMT_FLAG_PRECISION) || value) {                                                             \
-            do {                                                                                                         \
-                const char digit = (char) (value % base);                                                                \
-                if (len == PICO_PRINTF_NTOA_BUFFER_SIZE) {                                                               \
-                    fmt_state_puts(state, "%!(exceeded PICO_PRINTF_NTOA_BUFFER_SIZE)");                                  \
-                    return;                                                                                              \
-                }                                                                                                        \
-                buf[len++] = (char) (digit < 10 ? '0' + digit : (_is_upper(state->specifier) ? 'A' : 'a') + digit - 10); \
-                value /= base;                                                                                           \
-            } while (value && (len < PICO_PRINTF_NTOA_BUFFER_SIZE));                                                     \
-        }                                                                                                                \
-                                                                                                                         \
-        _ntoa_format(state, buf, len, negative, base);                                                                   \
+static void _ntoa_outro(struct fmt_state *state, size_t start_idx) {
+    // emit trailing spaces
+    for (unsigned len = fmt_state_len(state) - start_idx; len < state->width; len++)
+        fmt_state_putchar(state, ' ');
+}
+
+#define _define_ntoa(TYP, SUF)                                                                      \
+    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP absval,                            \
+                           bool negative, unsigned base) {                                          \
+        const size_t start_idx = fmt_state_len(state);                                              \
+        unsigned ndigits = 0;                                                                       \
+        unsigned TYP div;                                                                           \
+        if (absval) {                                                                               \
+            /* This is O(log(absval)); there are `__builtin_clz`-based O(1)                         \
+             * ways to do this, but when I tried them they bloated the                              \
+             * code-size too much.  And this function as a whole is already                         \
+             * O(log(absval)) anyway because of actually printing the digits.  */                   \
+            ndigits = 1;                                                                            \
+            div = 1;                                                                                \
+            while (absval / div >= base) {                                                          \
+                div *= base;                                                                        \
+                ndigits++;                                                                          \
+            }                                                                                       \
+        }                                                                                           \
+                                                                                                    \
+        /* emit leading whitespace, base/sign, and leading zeros */                                 \
+        _ntoa_intro(state, base, ndigits, absval ? (negative ? -1 : 1) : 0);                        \
+                                                                                                    \
+        /* emit the main number */                                                                  \
+        for (unsigned i = 0; i < ndigits; i++) {                                                    \
+            unsigned char digit = absval / div;                                                     \
+            absval %= div;                                                                          \
+            div /= base;                                                                            \
+            fmt_state_putchar(state,                                                                \
+                              digit < 10 ? '0' + digit                                              \
+                                         : (_is_upper(state->specifier) ? 'A' : 'a') + digit - 10); \
+        }                                                                                           \
+                                                                                                    \
+        /* emit trailing spaces */                                                                  \
+        _ntoa_outro(state, start_idx);                                                              \
     }
 
 _define_ntoa(int, );
@@ -282,6 +308,8 @@ _define_ntoa(long, l);
 _define_ntoa(long long, ll);
 #endif
 #endif
+
+// float //////////////////////////////////////////////////////////////////////
 
 #if PICO_PRINTF_SUPPORT_FLOAT
 
@@ -554,6 +582,8 @@ static void _etoa(struct fmt_state *state, double value, bool adapt_exp) {
 #endif // PICO_PRINTF_SUPPORT_EXPONENTIAL
 #endif // PICO_PRINTF_SUPPORT_FLOAT
 
+// main ///////////////////////////////////////////////////////////////////////
+
 inline static void _put_quoted_byte(struct fmt_state *state, unsigned char c) {
     fmt_state_putchar(state, '\'');
     if (' ' <= c && c <= '~') {
@@ -818,12 +848,11 @@ static void conv_uint(struct fmt_state *state) {
             break;
         case 'u':
             base = 10U;
+            state->flags &= ~(FMT_FLAG_PLUS | FMT_FLAG_SPACE);
             break;
         default:
             __builtin_unreachable();
     }
-
-    state->flags &= ~(FMT_FLAG_PLUS | FMT_FLAG_SPACE);
 
     switch (state->size) {
         case FMT_SIZE_LONG_LONG:

@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # The default GCC 13 has some false-positive warnings on our code.
+      CC: gcc-14
 
     steps:
     - name: Install dev tools
