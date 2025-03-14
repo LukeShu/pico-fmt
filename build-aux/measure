@@ -650,6 +650,16 @@ def main() -> None:
             },
         ),
         (
+            "pico-fmt 0.3",
+            "pico-fmt/v0.3.0",
+            {
+                "pico_fmt/printf.c",
+                "pico_fmt/include/pico/fmt_printf.h",
+                "pico_fmt/include/pico/fmt_install.h",
+                "build-aux/measure_stubs.S",
+            },
+        ),
+        (
             "pico-fmt Git-main",
             "HEAD",
             {
