@@ -50,11 +50,11 @@ void _out_fct(char character, void *arg) {
     printf_buffer[printf_idx++] = character;
 }
 
-int fmt_vprintf(const char *format, va_list va) {
+int fmt_vprintf(const char *format, va_list va) [[gnu::format(printf, 1, 0)]] {
     return fmt_vfctprintf(_out_fct, NULL, format, va);
 }
 
-int fmt_printf(const char *format, ...) {
+int fmt_printf(const char *format, ...) [[gnu::format(printf, 1, 2)]] {
     va_list va;
     va_start(va, format);
     int ret = fmt_vfctprintf(_out_fct, NULL, format, va);
@@ -86,6 +86,9 @@ int fmt_printf(const char *format, ...) {
             failures++;                                         \
         }                                                       \
     } while (0)
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 static void vprintf_builder_1(char *buffer, ...) {
     va_list args;
