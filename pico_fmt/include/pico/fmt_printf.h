@@ -69,16 +69,16 @@ typedef void (*fmt_fct_t)(char character, void *arg);
  * \param format A string that specifies the format of the output
  * \return The number of characters that are sent to the output function, not counting the terminating null character
  */
-int fmt_vfctprintf(fmt_fct_t out, void *arg, const char *format, va_list va);
+int fmt_vfctprintf(fmt_fct_t out, void *arg, const char *format, va_list va) [[gnu::format(printf, 3, 0)]];
 
 // Convenience functions ///////////////////////////////////////////////////////
 
-int fmt_fctprintf(fmt_fct_t out, void *arg, const char *format, ...);
+int fmt_fctprintf(fmt_fct_t out, void *arg, const char *format, ...) [[gnu::format(printf, 3, 4)]];
 
-int fmt_vsnprintf(char *buffer, size_t count, const char *format, va_list);
-int fmt_snprintf(char *buffer, size_t count, const char *format, ...);
-int fmt_vsprintf(char *buffer, const char *format, va_list);
-int fmt_sprintf(char *buffer, const char *format, ...);
+int fmt_vsnprintf(char *buffer, size_t count, const char *format, va_list) [[gnu::format(printf, 3, 0)]];
+int fmt_snprintf(char *buffer, size_t count, const char *format, ...) [[gnu::format(printf, 3, 4)]];
+int fmt_vsprintf(char *buffer, const char *format, va_list) [[gnu::format(printf, 2, 0)]];
+int fmt_sprintf(char *buffer, const char *format, ...) [[gnu::format(printf, 2, 3)]];
 
 #ifdef __cplusplus
 }

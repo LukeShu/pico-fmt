@@ -60,8 +60,8 @@ typedef void (*fmt_specifier_t)(struct fmt_state *);
 
 void fmt_state_putchar(struct fmt_state *state, char character);
 void fmt_state_puts(struct fmt_state *state, const char *str); // no trailing newline
-void fmt_state_vprintf(struct fmt_state *state, const char *format, va_list va);
-void fmt_state_printf(struct fmt_state *state, const char *format, ...);
+void fmt_state_vprintf(struct fmt_state *state, const char *format, va_list va) [[gnu::format(printf, 2, 0)]];
+void fmt_state_printf(struct fmt_state *state, const char *format, ...) [[gnu::format(printf, 2, 3)]];
 
 /**
  * \brief How many characters have been fmt_state_putchar()ed so far.
