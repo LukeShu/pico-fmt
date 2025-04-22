@@ -126,6 +126,12 @@ static inline unsigned int _strnlen_s(const char *str, size_t maxsize) {
     return (unsigned int) (s - str);
 }
 
+// The `~` operator, but without C promoting it to an int, which would
+// then trip -Wconversion.
+static inline fmt_flags flipflag(fmt_flags x) {
+    return ~x;
+}
+
 // internal test if char is a digit (0-9)
 // \return true if char is a digit
 static inline bool _is_digit(char ch) {
@@ -199,7 +205,7 @@ static void _ntoa_intro(struct fmt_state *state, unsigned base, unsigned ndigits
 
     if (state->flags & FMT_FLAG_PRECISION)
         // ignore '0' flag when precision is given
-        state->flags &= ~FMT_FLAG_ZEROPAD;
+        state->flags &= flipflag(FMT_FLAG_ZEROPAD);
 
     // emit leading spaces
     if (state->width &&
@@ -253,44 +259,47 @@ static void _ntoa_intro(struct fmt_state *state, unsigned base, unsigned ndigits
 
 static void _ntoa_outro(struct fmt_state *state, size_t start_idx) {
     // emit trailing spaces
-    for (unsigned len = fmt_state_len(state) - start_idx; len < state->width; len++)
+    for (size_t len = fmt_state_len(state) - start_idx; len < state->width; len++)
         fmt_state_putchar(state, ' ');
 }
 
-#define _define_ntoa(TYP, SUF)                                                                      \
-    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP absval,                            \
-                           bool negative, unsigned base) {                                          \
-        const size_t start_idx = fmt_state_len(state);                                              \
-        unsigned ndigits = 0;                                                                       \
-        unsigned TYP div;                                                                           \
-        if (absval) {                                                                               \
-            /* This is O(log(absval)); there are `__builtin_clz`-based O(1)                         \
-             * ways to do this, but when I tried them they bloated the                              \
-             * code-size too much.  And this function as a whole is already                         \
-             * O(log(absval)) anyway because of actually printing the digits.  */                   \
-            ndigits = 1;                                                                            \
-            div = 1;                                                                                \
-            while (absval / div >= base) {                                                          \
-                div *= base;                                                                        \
-                ndigits++;                                                                          \
-            }                                                                                       \
-        }                                                                                           \
-                                                                                                    \
-        /* emit leading whitespace, base/sign, and leading zeros */                                 \
-        _ntoa_intro(state, base, ndigits, absval ? (negative ? -1 : 1) : 0);                        \
-                                                                                                    \
-        /* emit the main number */                                                                  \
-        for (unsigned i = 0; i < ndigits; i++) {                                                    \
-            unsigned char digit = absval / div;                                                     \
-            absval %= div;                                                                          \
-            div /= base;                                                                            \
-            fmt_state_putchar(state,                                                                \
-                              digit < 10 ? '0' + digit                                              \
-                                         : (_is_upper(state->specifier) ? 'A' : 'a') + digit - 10); \
-        }                                                                                           \
-                                                                                                    \
-        /* emit trailing spaces */                                                                  \
-        _ntoa_outro(state, start_idx);                                                              \
+#define _define_ntoa(TYP, SUF)                                                       \
+    static void _ntoa##SUF(struct fmt_state *state, unsigned TYP absval,             \
+                           bool negative, unsigned base) {                           \
+        const size_t start_idx = fmt_state_len(state);                               \
+        unsigned ndigits = 0;                                                        \
+        unsigned TYP div;                                                            \
+        if (absval) {                                                                \
+            /* This is O(log(absval)); there are `__builtin_clz`-based O(1)          \
+             * ways to do this, but when I tried them they bloated the               \
+             * code-size too much.  And this function as a whole is already          \
+             * O(log(absval)) anyway because of actually printing the digits.  */    \
+            ndigits = 1;                                                             \
+            div = 1;                                                                 \
+            while (absval / div >= base) {                                           \
+                div *= base;                                                         \
+                ndigits++;                                                           \
+            }                                                                        \
+        }                                                                            \
+                                                                                     \
+        /* emit leading whitespace, base/sign, and leading zeros */                  \
+        _ntoa_intro(state, base, ndigits, absval ? (negative ? -1 : 1) : 0);         \
+                                                                                     \
+        /* emit the main number */                                                   \
+        for (unsigned i = 0; i < ndigits; i++) {                                     \
+            char digit = (char) (absval / div);                                      \
+            absval %= div;                                                           \
+            div /= base;                                                             \
+            char c;                                                                  \
+            if (digit < 10)                                                          \
+                c = (char) '0' + digit;                                              \
+            else                                                                     \
+                c = (char) ((_is_upper(state->specifier) ? 'A' : 'a') + digit - 10); \
+            fmt_state_putchar(state, c);                                             \
+        }                                                                            \
+                                                                                     \
+        /* emit trailing spaces */                                                   \
+        _ntoa_outro(state, start_idx);                                               \
     }
 
 _define_ntoa(int, );
@@ -367,7 +376,7 @@ static void _ftoa(struct fmt_state *state, double value) {
     int whole = (int) value;
     double tmp = (value - whole) * pow10[state->precision];
     unsigned long frac = (unsigned long) tmp;
-    diff = tmp - frac;
+    diff = tmp - (double) frac;
 
     if (diff > 0.5) {
         ++frac;
@@ -589,7 +598,7 @@ inline static void _put_quoted_byte(struct fmt_state *state, unsigned char c) {
     if (' ' <= c && c <= '~') {
         if (c == '\'' || c == '\\')
             fmt_state_putchar(state, '\\');
-        fmt_state_putchar(state, c);
+        fmt_state_putchar(state, (char) c);
     } else {
         fmt_state_putchar(state, '\\');
         fmt_state_putchar(state, 'x');
@@ -637,7 +646,7 @@ static fmt_specifier_t specifier_table[0x7F] = {
 };
 
 void fmt_install(char character, fmt_specifier_t fn) {
-    unsigned int idx = character;
+    unsigned int idx = (unsigned char) character;
     if (idx < array_len(specifier_table) &&
         ' ' < idx && idx <= '~' &&
         !('0' <= idx && idx <= '9'))
@@ -767,7 +776,7 @@ static void _vfctprintf(struct _fmt_ctx *ctx, const char *format, va_list *va_sa
             specifier_table[(unsigned int) state->specifier](state);
         } else {
             fmt_state_puts(state, "%!(unknown specifier=");
-            _put_quoted_byte(state, state->specifier);
+            _put_quoted_byte(state, (unsigned char) state->specifier);
             fmt_state_putchar(state, ')');
         }
     }
@@ -848,7 +857,7 @@ static void conv_uint(struct fmt_state *state) {
             break;
         case 'u':
             base = 10U;
-            state->flags &= ~(FMT_FLAG_PLUS | FMT_FLAG_SPACE);
+            state->flags &= flipflag(FMT_FLAG_PLUS | FMT_FLAG_SPACE);
             break;
         default:
             __builtin_unreachable();
@@ -960,14 +969,14 @@ static void conv_ptr(struct fmt_state *state) {
                    sizeof(uintptr_t) == sizeof(long) ||
                    sizeof(uintptr_t) == sizeof(long long));
     if (sizeof(uintptr_t) == sizeof(int))
-        _ntoa(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+        _ntoa(state, (unsigned int) (uintptr_t) va_arg(*state->args, void *), false, 16U);
     else if (sizeof(uintptr_t) == sizeof(long))
-        _ntoal(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+        _ntoal(state, (unsigned long) (uintptr_t) va_arg(*state->args, void *), false, 16U);
     else if (sizeof(uintptr_t) == sizeof(long long))
 #if PICO_PRINTF_SUPPORT_LONG_LONG
-        _ntoall(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+        _ntoall(state, (unsigned long long) (uintptr_t) va_arg(*state->args, void *), false, 16U);
 #else
-        _ntoal(state, (uintptr_t) va_arg(*state->args, void *), false, 16U);
+        _ntoal(state, (unsigned long) (uintptr_t) va_arg(*state->args, void *), false, 16U);
 #endif
 }
 

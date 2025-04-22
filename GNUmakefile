@@ -28,6 +28,8 @@ CFLAGS += -Wsign-compare
 CFLAGS += -Wstrict-prototypes
 CFLAGS += -Wredundant-decls
 CFLAGS += -Wswitch-enum
+CFLAGS += -Wvla
+CFLAGS += -Wconversion
 
 export CFLAGS
 
