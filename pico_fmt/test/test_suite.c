@@ -1262,7 +1262,7 @@ int main(void) {
 
 #if PICO_PRINTF_SUPPORT_EXPONENTIAL
         // brute force exp
-        for (float i = -1e20; i < 1e20; i += 1e15) {
+        for (float i = -1e20f; i < 1e20f; i += 1e15f) {
             fmt_sprintf(buffer, "%.5e", i);
             sprintf(libc_buffer, "%.5e", i);
             REQUIRE_STREQ(buffer, libc_buffer);
