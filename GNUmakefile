@@ -1,3 +1,5 @@
+# GNUmakefile - For working on pico-fmt itself; users should not use this file
+#
 # Copyright (C) 2025  Luke T. Shumaker <lukeshu@lukeshu.com>
 # SPDX-License-Identifier: BSD-3-Clause
 

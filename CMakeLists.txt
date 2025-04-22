@@ -1,3 +1,5 @@
+# CMakeLists.txt - For working on pico-fmt itself; users should not use this file
+#
 # Copyright (c) 2025  Luke T. Shumaker
 # SPDX-License-Identifier: BSD-3-Clause
 
