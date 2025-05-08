@@ -48,10 +48,6 @@ struct fmt_state {
     struct _fmt_ctx *ctx;
 };
 
-typedef void (*fmt_specifier_t)(struct fmt_state *);
-
-void fmt_state_putchar(struct fmt_state *state, char character);
-
 /**
  * \brief The function signature that your custom handler must implement.
  */
