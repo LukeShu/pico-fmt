@@ -1,3 +1,5 @@
+# Copyright (C) 2025  Luke T. Shumaker <lukeshu@lukeshu.com>
+# SPDX-License-Identifier: BSD-3-Clause
 ---
 Language: Cpp # "C" didn't become a value until clang 20; I'm still on clang 19
 BasedOnStyle: LLVM
