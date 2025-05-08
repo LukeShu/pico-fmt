@@ -15,16 +15,30 @@
 // so we make a function pointer that is initialized on the first printf called... if printf is not included in the binary
 // (or has never been called - we can't tell) then this will be null. the assumption is that if you are using printf
 // you are likely to have printed something.
-static int (*lazy_vfctprintf)(void (*out)(char character, void *arg), void *arg, const char *format, va_list va);
+static int (*lazy_vfctprintf)(fmt_fct_t fct, void *arg, const char *format, va_list va);
 #endif
 
 // output: [F]un[CT]ion //////////////////////////////////////////////
+
+struct fn_arg {
+    void (*fn)(char character, void *arg);
+    void *arg;
+};
+
+static void fn_fct(void *_arg, char character) {
+    struct fn_arg *arg = _arg;
+    arg->fn(character, arg->arg);
+}
 
 int vfctprintf(void (*out)(char character, void *arg), void *arg, const char *format, va_list va) {
 #if !PICO_PRINTF_ALWAYS_INCLUDED
     lazy_vfctprintf = fmt_vfctprintf;
 #endif
-    return fmt_vfctprintf(out, arg, format, va);
+    struct fn_arg wrapped = {
+        .fn = out,
+        .arg = arg,
+    };
+    return fmt_vfctprintf(fn_fct, arg, format, va);
 }
 
 // output: [S]tring //////////////////////////////////////////////////
@@ -66,7 +80,7 @@ int WRAPPER_FUNC(sprintf)(char *buffer, const char *format, ...)
  * This function is declared here only. You have to write your custom implementation somewhere
  * \param character Character to output
  */
-static void _out_char(char character, void *arg) {
+static void _out_char(void *arg, char character) {
     (void) arg;
     if (character) {
         putchar(character);

@@ -59,7 +59,7 @@ extern "C" {
 /**
  * \brief An output function
  */
-typedef void (*fmt_fct_t)(char character, void *arg);
+typedef void (*fmt_fct_t)(void *arg, char character);
 
 /**
  * \brief vprintf with output function

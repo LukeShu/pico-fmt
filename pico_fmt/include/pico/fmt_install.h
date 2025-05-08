@@ -55,6 +55,9 @@ typedef void (*fmt_specifier_t)(struct fmt_state *);
 
 // Utilities for implementing the specifier ////////////////////////////////////
 
+// Notice that fmt_state_putchar() is a fmt_fct_t, allowing you to use
+// it to call fmt_fctprintf() from within your specifier.
+
 void fmt_state_putchar(struct fmt_state *state, char character);
 void fmt_state_puts(struct fmt_state *state, const char *str); // no trailing newline
 void fmt_state_vprintf(struct fmt_state *state, const char *format, va_list va) [[gnu::format(printf, 2, 0)]];

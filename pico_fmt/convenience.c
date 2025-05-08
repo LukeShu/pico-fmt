@@ -18,7 +18,7 @@ typedef struct {
     size_t cur;
 } _arg_buffer;
 
-static void _out_buffer(char character, void *_arg) {
+static void _out_buffer(void *_arg, char character) {
     _arg_buffer *arg = _arg;
     if (arg->cur < arg->maxlen) {
         arg->buffer[arg->cur++] = character;
@@ -41,6 +41,10 @@ int fmt_vsnprintf(char *buffer, size_t count, const char *format, va_list va) {
 
 int fmt_vsprintf(char *buffer, const char *format, va_list va) {
     return fmt_vsnprintf(buffer, (size_t) -1, format, va);
+}
+
+void fmt_state_vprintf(struct fmt_state *state, const char *format, va_list va) {
+    (void) fmt_vfctprintf(fmt_state_putchar, state, format, va);
 }
 
 // Var-args wrappers ///////////////////////////////////////////////////////////
